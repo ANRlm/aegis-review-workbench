@@ -32,6 +32,8 @@ class AppConfig:
 
     @property
     def model_path(self) -> Path:
+        if self.testing:
+            return self.models_dir / "aegis_game_best.pt"
         configured = os.getenv("AEGIS_MODEL_PATH")
         if configured:
             return Path(configured).expanduser().resolve()
