@@ -90,7 +90,17 @@ def _extract_surname() -> str:
 # ---------------------------------------------------------------------------
 def _git_available() -> bool:
     import shutil as _shutil
-    return _shutil.which("git") is not None
+
+    if _shutil.which("git") is None:
+        return False
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def _run_pytest_gate() -> bool | str:
@@ -359,18 +369,20 @@ def _translate(gates: dict[str, bool | str]) -> tuple[bool, list[str]]:
 # ---------------------------------------------------------------------------
 MANIFEST_PATTERNS = [
     "app.py", "requirements.txt", "environment.yml",
-    "Dockerfile", "compose.yaml", ".dockerignore", ".editorconfig", "pytest.ini",
+    "Dockerfile", "compose.yaml", ".dockerignore", ".editorconfig", ".gitignore",
+    "pytest.ini",
     "README.md", "AGENTS.md",
     "aegis_review/**/*.py",
-    "static/**", "templates/**",
+    "static/**/*", "templates/**/*",
     "prompts/**/*.md",
     "scripts/*.py",
     "tests/**/*.py",
+    "tests/fixtures/media/**/*",
     "models/aegis_game_best.pt",
     "docs/**/*.md",
     "screenshots/*.png", "screenshots/*.jpg", "screenshots/*.jpeg",
-    "dataset/**",
-    "training_evidence/**",
+    "dataset/**/*",
+    "training_evidence/**/*",
 ]
 
 EXCLUDE_PREFIXES = (

@@ -58,6 +58,29 @@ def test_d1_output_job_dirs_match_contract() -> None:
     if not jobs:
         pytest.skip("no job directories in outputs/")
 
+
+def test_d1b_git_probe_requires_an_actual_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fixtures import support
+
+    monkeypatch.setattr(support, "PROJECT_ROOT", tmp_path)
+    assert support.git_available() is False
+
+
+def test_d1c_release_git_probe_requires_an_actual_repository(
+    tmp_path: Path,
+) -> None:
+    mod = _pr_module()
+    original_root = mod.PROJECT_ROOT
+    try:
+        mod.PROJECT_ROOT = tmp_path
+        assert mod._git_available() is False
+    finally:
+        mod.PROJECT_ROOT = original_root
+
+
 def test_d2_no_secrets_or_privacy_paths_in_tracked_files() -> None:
     if not git_available():
         pytest.skip("git not installed")
@@ -256,6 +279,12 @@ def test_d8_submission_archive_extracts_to_directly_runnable_named_project(
     assert f"{project_root}README.md" in names
     assert f"{project_root}requirements.txt" in names
     assert f"{project_root}app.py" in names
+    assert f"{project_root}templates/index.html" in names
+    assert f"{project_root}static/styles.css" in names
+    assert f"{project_root}static/app.js" in names
+    assert f"{project_root}dataset/data.yaml" in names
+    assert f"{project_root}training_evidence/aegis_game_best.sha256" in names
+    assert f"{project_root}tests/fixtures/media/sample_5s.mp4" in names
     assert f"{project_root}demo/demo_script.md" in names
     assert any(
         name.startswith(f"{project_root}outputs/")

@@ -11,7 +11,7 @@
 
 ```text
 conda run -n aegis-review pytest -q -rs
-→ 371 passed in 12.04s
+→ 373 passed in 13.59s
 
 conda run -n aegis-review python -m py_compile app.py scripts/package_release.py
 → exit 0

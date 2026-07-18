@@ -311,10 +311,20 @@ _PRIVACY_PATH_WHITELIST: frozenset[str] = frozenset({
 
 
 def git_available() -> bool:
-    """True if ``git`` is on PATH (needed for hygiene / delivery scans)."""
+    """True when Git exists and the project root is an actual checkout."""
     import shutil as _shutil
+    import subprocess
 
-    return _shutil.which("git") is not None
+    if _shutil.which("git") is None:
+        return False
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def hygiene_scan(project_root: Path) -> dict[str, str]:
