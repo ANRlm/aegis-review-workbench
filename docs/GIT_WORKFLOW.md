@@ -84,7 +84,8 @@ gh pr create --base main --head feature/backend-api
 
 规则：
 
-- 每个 PR 至少由一名其他成员审阅；
+- `main` 必须通过 PR 和 `contract` 状态检查，但不强制批准数量；
+- 建议成员在方便时互相审阅，审阅记录不作为合并门禁；
 - 合并顺序为 CV → 后端 → 前端 → QA；
 - 使用 GitHub 的 **Create a merge commit**；
 - 禁止 Squash and merge；
