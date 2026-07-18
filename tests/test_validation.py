@@ -222,6 +222,7 @@ class TestTempCleanup:
         monkeypatch.setattr(cv2, "VideoCapture", lambda p: FakeCap())
         result = decode_video_stream(BytesIO(b"test"), max_bytes=999999)
         assert result is True
+        assert captured
         for name in captured:
             assert not Path(name).exists()
     def test_overflow_raises_and_cleans(self, monkeypatch) -> None:
@@ -236,6 +237,7 @@ class TestTempCleanup:
         from aegis_review.validation import MediaTooLargeError
         with pytest.raises(MediaTooLargeError):
             decode_video_stream(BytesIO(b"x" * 3000), max_bytes=100)
+        assert captured
         for name in captured:
             assert not Path(name).exists()
     def test_decode_failure_cleans_temp(self, monkeypatch) -> None:

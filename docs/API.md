@@ -250,6 +250,8 @@ HTTP 200：
 | `artifact_not_found` | 404 | 产物文件不存在或超出任务目录 |
 | `not_found` | 404 | 请求的接口不存在 |
 | `payload_too_large` | 413 | 上传文件超过 200MB 限制 |
+| `invalid_status` | 409 | 当前任务状态不允许该操作 |
+| `job_busy` | 409 | 任务正在排队或执行，暂时不能删除 |
 | `job_busy` | 409 | 任务状态冲突或正在执行 |
 | `internal_error` | 500 | 服务器内部错误，不暴露堆栈 |
 

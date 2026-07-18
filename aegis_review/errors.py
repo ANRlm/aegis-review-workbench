@@ -15,7 +15,6 @@ def error_response(code: str, message: str, status: int):
 
 def register_api_error_handlers(api_blueprint):
     """Register exception-to-JSON-error mappings on the API blueprint."""
-    from werkzeug.exceptions import HTTPException
     from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed, NotFound, RequestEntityTooLarge
     from .service import (
         ArtifactNotFoundError, InvalidStatusTransition,

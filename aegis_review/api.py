@@ -192,7 +192,6 @@ def stats():
     return jsonify({"ok": True, "stats": data})
 
 
-register_api_error_handlers(api)
 @api.record
 def _register_app_http_handler(state):
     from flask import request
