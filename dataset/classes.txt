@@ -1,0 +1,5 @@
+player
+enemy
+energy_orb
+treasure_chest
+health_potion
