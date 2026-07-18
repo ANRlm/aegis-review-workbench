@@ -1,16 +1,8 @@
-"""Abnormal-path tests (A1‑A12) and security probes.
-
-Covers invalid inputs, path traversal, symlink escapes, model‑missing
-behaviour, service‑restart recovery, and running‑job deletion.
-
-Many tests depend on backend routes and are skipped with explicit
-reasons when those features have not been merged.
-"""
+"""Integrated abnormal-path tests (A1-A12) and security probes."""
 
 from __future__ import annotations
 
 import io
-import os
 import time
 from pathlib import Path
 
@@ -18,20 +10,12 @@ import pytest
 
 from tests.fixtures.support import (
     FIXTURE_MEDIA,
-    PROJECT_ROOT,
-    SKIP_NO_BACKEND,
-    SKIP_NO_MODEL,
+    BlockingAnalyzer,
     SKIP_NOT_WINDOWS_SYMLINK,
     error_matches,
-    has_analyze_route,
-    has_artifacts_route,
-    has_delete_route,
-    has_job_routes,
-    has_report_route,
-    has_review_route,
-    has_statistics_route,
     make_app,
-    skip_if,
+    managed_app,
+    static_analyzer,
     upload,
     validate_json,
 )
@@ -44,29 +28,12 @@ CLEAN = FIXTURE_MEDIA / "clean_scene.jpg"
 VIDEO = FIXTURE_MEDIA / "sample_5s.mp4"
 
 
-def _model_path() -> Path | None:
-    p = PROJECT_ROOT / "models" / "aegis_game_best.pt"
-    if p.is_file():
-        return p
-    env = os.getenv("AEGIS_MODEL_PATH")
-    if env:
-        ep = Path(env).expanduser().resolve()
-        if ep.is_file():
-            return ep
-    return None
-
-
-def _needs_model() -> None:
-    skip_if(_model_path() is None, SKIP_NO_MODEL)
-
-
 # ---------------------------------------------------------------------------
 # A1  不支持扩展名
 # ---------------------------------------------------------------------------
 def test_a1_unsupported_extension_rejected(tmp_path: Path) -> None:
     """A1: .bmp upload returns 400."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     data = {"project_name": "bad ext"}
     data["asset"] = (io.BytesIO(b"\x00" * 100), "frame.bmp")
@@ -83,7 +50,6 @@ def test_a1_unsupported_extension_rejected(tmp_path: Path) -> None:
 def test_a2_empty_file_rejected(tmp_path: Path) -> None:
     """A2: zero-byte upload returns 400 invalid_asset."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     with app.test_client() as client:
         resp = upload(client, EMPTY, "empty")
@@ -97,7 +63,6 @@ def test_a2_empty_file_rejected(tmp_path: Path) -> None:
 def test_a3a_corrupt_image_rejected(tmp_path: Path) -> None:
     """A3a: truncated JPEG returns 400 invalid_asset."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     with app.test_client() as client:
         resp = upload(client, CORRUPT_JPEG, "corrupt img")
@@ -108,7 +73,6 @@ def test_a3a_corrupt_image_rejected(tmp_path: Path) -> None:
 def test_a3b_corrupt_video_rejected(tmp_path: Path) -> None:
     """A3b: garbage bytes .mp4 returns 400 invalid_asset."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     with app.test_client() as client:
         resp = upload(client, CORRUPT_MP4, "corrupt vid")
@@ -122,8 +86,7 @@ def test_a3b_corrupt_video_rejected(tmp_path: Path) -> None:
 def test_a4_invalid_settings_threshold_order_rejected(tmp_path: Path) -> None:
     """A4: review_confidence >= reject_confidence returns 400."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
-    skip_if(not CLEAN.is_file(), "clean fixture missing")
+    assert CLEAN.is_file()
 
     bad_settings = {"reject_confidence": 0.30, "review_confidence": 0.70}
     with app.test_client() as client:
@@ -137,20 +100,18 @@ def test_a4_invalid_settings_threshold_order_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 def test_a5_blank_reviewer_rejected(tmp_path: Path) -> None:
     """A5: PATCH review with empty reviewer returns 400."""
-    app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
-    skip_if(not has_review_route(app), SKIP_NO_BACKEND)
-    skip_if(not CLEAN.is_file(), "clean fixture missing")
-    _needs_model()
-
     from tests.fixtures.support import flow_image_complete
 
-    with app.test_client() as client:
-        job_id, _report = flow_image_complete(client, CLEAN, "QA空审核人")
-        resp = client.patch(
-            f"/api/jobs/{job_id}/review",
-            json={"decision": "review", "reviewer": "   ", "note": ""},
-        )
+    with managed_app(
+        {"project_root": tmp_path},
+        analyzer=static_analyzer([]),
+    ) as app:
+        with app.test_client() as client:
+            job_id, _report = flow_image_complete(client, CLEAN, "QA空审核人")
+            resp = client.patch(
+                f"/api/jobs/{job_id}/review",
+                json={"decision": "review", "reviewer": "   ", "note": ""},
+            )
     assert resp.status_code == 400
 
 
@@ -159,23 +120,26 @@ def test_a5_blank_reviewer_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 def test_a6_duplicate_analyze_returns_409(tmp_path: Path) -> None:
     """A6: calling analyze on a queued/running/completed job returns 409."""
-    app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
-    skip_if(not has_analyze_route(app), SKIP_NO_BACKEND)
-    skip_if(not CLEAN.is_file(), "clean fixture missing")
-    _needs_model()
+    blocker = BlockingAnalyzer(static_analyzer([]))
+    try:
+        with managed_app(
+            {"project_root": tmp_path},
+            analyzer=blocker,
+        ) as app:
+            with app.test_client() as client:
+                resp = upload(client, CLEAN, "duplicate")
+                assert resp.status_code == 201
+                job_id = resp.get_json()["job"]["job_id"]
 
-    with app.test_client() as client:
-        resp = upload(client, CLEAN, "duplicate")
-        assert resp.status_code == 201
-        job_id = resp.get_json()["job"]["job_id"]
+                r1 = client.post(f"/api/jobs/{job_id}/analyze")
+                assert r1.status_code == 202
+                assert blocker.started.wait(timeout=2)
 
-        r1 = client.post(f"/api/jobs/{job_id}/analyze")
-        assert r1.status_code == 202
-
-        r2 = client.post(f"/api/jobs/{job_id}/analyze")
-        assert r2.status_code == 409
-        assert error_matches(r2, 409, r2.get_json().get("error", {}).get("code", ""))
+                r2 = client.post(f"/api/jobs/{job_id}/analyze")
+                assert error_matches(r2, 409, "invalid_status")
+                blocker.release.set()
+    finally:
+        blocker.release.set()
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +149,7 @@ def test_a7_model_missing_returns_appropriate_error(tmp_path: Path) -> None:
     """A7: when model file is missing, analyze either returns immediate error
     or the job transitions to failed with a model‑related error."""
     app = make_app({"project_root": tmp_path, "testing": True})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
-    skip_if(not has_analyze_route(app), SKIP_NO_BACKEND)
-    skip_if(not CLEAN.is_file(), "clean fixture missing")
+    assert CLEAN.is_file()
 
     # tmp_path guarantees model_ready is False
     with app.test_client() as client:
@@ -195,9 +157,6 @@ def test_a7_model_missing_returns_appropriate_error(tmp_path: Path) -> None:
         assert resp.get_json().get("model_ready") is False, "expected model_ready=false in test"
 
         resp = upload(client, CLEAN, "model missing test")
-        # If backend hasn't been merged, this is a 404 – skip gracefully
-        if resp.status_code == 404:
-            pytest.skip(SKIP_NO_BACKEND)
         assert resp.status_code == 201
         job_id = resp.get_json()["job"]["job_id"]
 
@@ -237,27 +196,24 @@ def test_a7_model_missing_returns_appropriate_error(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 def test_a8_delete_running_job_returns_409(tmp_path: Path) -> None:
     """A8: DELETE a queued/running job returns 409 job_busy."""
-    app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
-    skip_if(not has_delete_route(app), SKIP_NO_BACKEND)
-    skip_if(not has_analyze_route(app), SKIP_NO_BACKEND)
-    skip_if(not VIDEO.is_file(), SKIP_NO_BACKEND)
-    _needs_model()
+    assert VIDEO.is_file()
+    blocker = BlockingAnalyzer(static_analyzer([]))
+    try:
+        with managed_app(
+            {"project_root": tmp_path},
+            analyzer=blocker,
+        ) as app:
+            with app.test_client() as client:
+                response = upload(client, VIDEO, "确定性运行中删除")
+                job_id = response.get_json()["job"]["job_id"]
+                assert client.post(f"/api/jobs/{job_id}/analyze").status_code == 202
+                assert blocker.started.wait(timeout=2)
 
-    with app.test_client() as client:
-        resp = upload(client, VIDEO, "delete running")
-        assert resp.status_code == 201
-        job_id = resp.get_json()["job"]["job_id"]
-
-        client.post(f"/api/jobs/{job_id}/analyze")
-        time.sleep(0.1)
-
-        resp = client.delete(f"/api/jobs/{job_id}")
-        if resp.status_code == 409:
-            assert error_matches(resp, 409, "job_busy")
-        else:
-            # Job was too fast (e.g. tiny video) – skip instead of fail
-            pytest.skip("job completed before delete could be tested — reliable with real model")
+                deleted = client.delete(f"/api/jobs/{job_id}")
+                assert error_matches(deleted, 409, "job_busy")
+                blocker.release.set()
+    finally:
+        blocker.release.set()
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +222,6 @@ def test_a8_delete_running_job_returns_409(tmp_path: Path) -> None:
 def test_a9_invalid_job_id_returns_404(tmp_path: Path) -> None:
     """A9: malformed / nonexistent job IDs return 404 without crashing."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     bad_ids = ["not_a_job", "20260718_101530", "../../etc/passwd", "x" * 50]
     with app.test_client() as client:
@@ -288,7 +243,6 @@ def test_a9_invalid_job_id_returns_404(tmp_path: Path) -> None:
 def test_a10_artifact_traversal_returns_404(tmp_path: Path) -> None:
     """A10: artifact requests containing ../ or absolute paths are rejected."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     # Even without a real job, the route should reject traversal patterns
     with app.test_client() as client:
@@ -398,10 +352,8 @@ def test_a11a_resolve_artifact_rejects_symlink_escape(tmp_path: Path) -> None:
 # A11b  HTTP artifact route (requires backend)
 # ---------------------------------------------------------------------------
 def test_a11b_http_artifact_traversal_rejected(tmp_path: Path) -> None:
-    """A11b: HTTP artifact download rejects path traversal (blocked: no backend)."""
+    """A11b: HTTP artifact download rejects path traversal."""
     app = make_app({"project_root": tmp_path})
-    skip_if(not has_artifacts_route(app), SKIP_NO_BACKEND)
-    skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
     with app.test_client() as client:
         for filename in [

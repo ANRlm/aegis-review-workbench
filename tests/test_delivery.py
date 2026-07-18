@@ -19,7 +19,6 @@ from tests.fixtures.support import (
     JOB_ID_RE,
     MAX_FILE_SIZE,
     PROJECT_ROOT,
-    SKIP_NO_SCRIPT,
     git_available,
     hygiene_scan,
     validate_csv,

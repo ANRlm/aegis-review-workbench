@@ -8,27 +8,17 @@ role-owned files.
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 import io
 import json
 import os
 import re
+from threading import Event
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-import pytest  # allowed – tests/fixtures/ is QA-exclusive
-
-# ---------------------------------------------------------------------------
-# Skip‑reason constants (quoted verbatim in the test report)
-# ---------------------------------------------------------------------------
-SKIP_NO_BACKEND = "阻塞：后端 feature/backend-api 尚未合并，job API 不可用"
-SKIP_NO_CV = "阻塞：CV feature/cv-pipeline 尚未合并，分析管线不可用"
-SKIP_NO_MODEL = "阻塞：模型文件 aegis_game_best.pt 缺失，无法真实推理"
-SKIP_NO_DETECTOR_SEAM = "阻塞：CV 注入式假 Detector 焊缝尚未暴露，待 CV 合并后启用"
-SKIP_NO_FRONTEND = "阻塞：前端 feature/frontend-workbench 尚未合并"
 SKIP_NOT_WINDOWS_SYMLINK = "Windows 开发模式未启用，无法创建符号链接"
-SKIP_TIMING_RACE = "跳过：分析耗时不足以测量运行中删除（视频任务合并后可靠）"
-SKIP_NO_SCRIPT = "阻塞：scripts/package_release.py 尚不存在（待阶段 5 提交）"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -39,47 +29,68 @@ PROJECT_ROOT = HERE.parents[1]
 
 JOB_ID_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{8}$")
 
-# ---------------------------------------------------------------------------
-# Capability probes
-# ---------------------------------------------------------------------------
+
+class StaticDetector:
+    """Return deterministic JSON-native detections for every sampled frame."""
+
+    def __init__(self, detections: list[dict[str, Any]]) -> None:
+        self._detections = detections
+
+    def detect(
+        self,
+        _frame: Any,
+        confidence: float,
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                **detection,
+                "bbox_xyxy": list(detection["bbox_xyxy"]),
+            }
+            for detection in self._detections
+            if float(detection["confidence"]) >= float(confidence)
+        ]
 
 
-def _has_route(app, method: str, path: str) -> bool:
-    """True if `app` owns a handler for *exactly* this route."""
-    adapter = app.url_map.bind("")
-    try:
-        adapter.match(path, method=method)
-    except Exception:
-        return False
-    return True
+class BlockingAnalyzer:
+    """Hold a real AnalysisRunner until a test explicitly releases it."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+        self.started = Event()
+        self.release = Event()
+
+    def __call__(
+        self,
+        input_path: Path,
+        evidence_dir: Path,
+        result_dir: Path,
+        settings: Any,
+    ) -> Any:
+        self.started.set()
+        if not self.release.wait(timeout=10):
+            raise RuntimeError("QA blocking analyzer was not released")
+        return self._delegate(
+            input_path,
+            evidence_dir,
+            result_dir,
+            settings,
+        )
 
 
-def has_job_routes(app) -> bool:
-    return _has_route(app, "POST", "/api/jobs")
+def static_analyzer(detections: list[dict[str, Any]]) -> Any:
+    """Bind a deterministic Detector to the production CV pipeline."""
+    from aegis_review.cv import bind_analyzer
+
+    return bind_analyzer(detector=StaticDetector(detections))
 
 
-def has_analyze_route(app) -> bool:
-    return _has_route(app, "POST", "/api/jobs/ANY/analyze")
+def real_model_analyzer() -> Any:
+    """Bind the repository's trained model independently of temp project roots."""
+    from aegis_review.cv import bind_analyzer
 
-
-def has_report_route(app) -> bool:
-    return _has_route(app, "GET", "/api/jobs/ANY/report")
-
-
-def has_artifacts_route(app) -> bool:
-    return _has_route(app, "GET", "/api/jobs/ANY/artifacts/filename")
-
-
-def has_delete_route(app) -> bool:
-    return _has_route(app, "DELETE", "/api/jobs/ANY")
-
-
-def has_statistics_route(app) -> bool:
-    return _has_route(app, "GET", "/api/stats")
-
-
-def has_review_route(app) -> bool:
-    return _has_route(app, "PATCH", "/api/jobs/ANY/review")
+    return bind_analyzer(
+        model_path=PROJECT_ROOT / "models" / "aegis_game_best.pt",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -87,17 +98,41 @@ def has_review_route(app) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def make_app(config_kwargs=None):
+def make_app(config_kwargs=None, *, analyzer=None):
     """Return a Flask app configured for QA testing.
 
-    The app uses the *real* project root unless config_kwargs explicitly
-    overrides it (e.g. ``project_root=tmp_path``).
+    Temp projects default to ``testing=True`` so production environment
+    variables cannot redirect their model path.  A supplied analyzer is
+    injected through the public application-factory seam.
     """
     from aegis_review import create_app
     from aegis_review.config import AppConfig
+    from aegis_review.service import JobService
+    from aegis_review.storage import JobStorage
 
-    cfg = AppConfig(**(config_kwargs or {}))
-    return create_app(cfg)
+    kwargs = dict(config_kwargs or {})
+    kwargs.setdefault("testing", True)
+    cfg = AppConfig(**kwargs)
+    if analyzer is None:
+        return create_app(cfg)
+    service = JobService(
+        storage=JobStorage(
+            cfg.outputs_dir,
+            cfg.max_content_length,
+        ),
+        analyzer=analyzer,
+    )
+    return create_app(cfg, job_service=service)
+
+
+@contextmanager
+def managed_app(config_kwargs=None, *, analyzer=None) -> Iterator[Any]:
+    """Yield a QA app and always stop its executor before deleting temp files."""
+    app = make_app(config_kwargs, analyzer=analyzer)
+    try:
+        yield app
+    finally:
+        app.extensions["aegis_job_service"].shutdown(wait=True)
 
 
 def upload(client, asset_path: Path, project_name: str = "QA验收", settings=None):
@@ -133,6 +168,10 @@ def poll(client, job_id: str, target: str, timeout: float = 30.0, interval: floa
             job = body.get("job") or {}
             if job.get("status") == target:
                 return body
+            if job.get("status") == "failed":
+                raise AssertionError(
+                    f"job {job_id} failed: {job.get('error') or '未知错误'}"
+                )
         time.sleep(interval)
     raise TimeoutError(f"job {job_id} did not reach status={target} within {timeout}s")
 
@@ -345,12 +384,3 @@ def hygiene_scan(project_root: Path) -> dict[str, str]:
                     findings[rel] = f"absolute path: {m.group()}"
 
     return findings
-
-
-# ---------------------------------------------------------------------------
-# Test helpers
-# ---------------------------------------------------------------------------
-def skip_if(condition: bool, reason: str) -> None:
-    """Convenience: call ``pytest.skip`` when *condition* is True."""
-    if condition:
-        pytest.skip(reason)
