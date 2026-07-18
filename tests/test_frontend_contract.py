@@ -372,6 +372,80 @@ def test_html_stats_inside_topbar(rendered_html: str) -> None:
     assert 'id="stats-bar"' in rendered_html
 
 
+def test_html_rule_snapshot_present(rendered_html: str) -> None:
+    assert 'id="rule-snapshot"' in rendered_html, (
+        "Rule snapshot must exist in right rail"
+    )
+
+
+# ---------------------------------------------------------------------------
+# New regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_js_no_dual_contract_job_read(app_js: str) -> None:
+    """fetchJob must strictly read data.job, not fallback to data."""
+    assert "return data.job;" in app_js or "return data.job\n" in app_js or "return data.job " in app_js or "return data.job\r" in app_js, (
+        "fetchJob must return data.job strictly, not data.job || data"
+    )
+
+
+def test_js_no_dual_contract_report_read(app_js: str) -> None:
+    """Sections that read report must use data.report strictly."""
+    assert "data.report || data" not in app_js, (
+        "No code should fallback data.report || data"
+    )
+    assert "data.job || data" not in app_js, (
+        "No code should fallback data.job || data"
+    )
+
+
+def test_js_parse_numeric_preserves_zero(app_js: str) -> None:
+    """parseNumeric must not use || default that overwrites 0."""
+    parse_func = _extract_function(app_js, "function parseNumeric")
+    assert "isFinite" in parse_func, (
+        "parseNumeric must use isFinite, not || default"
+    )
+    assert "parseFloat(" not in parse_func, (
+        "parseNumeric must use Number(), not parseFloat()"
+    )
+
+
+def test_js_upload_button_has_dynamic_text(app_js: str) -> None:
+    """updateUploadButton must set textContent based on model_ready."""
+    update_func = _extract_function(app_js, "function updateUploadButton")
+    assert 'textContent' in update_func or '.textContent' in app_js, (
+        "Upload button text must be dynamic"
+    )
+    assert '仅创建任务' in app_js, (
+        "Button must show 仅创建任务 when model is not ready"
+    )
+    assert '创建并分析' in app_js, (
+        "Button must show 创建并分析 when model is ready"
+    )
+
+
+def test_js_download_url_not_double_encoded(app_js: str) -> None:
+    """CSV/ZIP must use the backend URL directly, not pass through encodeURIComponent or artifactUrl."""
+    csv_func = _extract_function(app_js, "handleDownloadCsv")
+    zip_func = _extract_function(app_js, "handleDownloadZip")
+    assert "encodeURIComponent" not in csv_func, (
+        "CSV download URL must not be re-encoded"
+    )
+    assert "encodeURIComponent" not in zip_func, (
+        "ZIP download URL must not be re-encoded"
+    )
+
+
+def test_js_rule_snapshot_renders_settings(app_js: str) -> None:
+    assert "renderRuleSnapshot" in app_js, (
+        "renderRuleSnapshot must exist"
+    )
+    assert "rule-snapshot" in app_js, (
+        "Rule snapshot element must be referenced in JS"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
