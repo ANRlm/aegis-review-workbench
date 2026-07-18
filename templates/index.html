@@ -3,50 +3,222 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta
-      name="description"
-      content="影鉴 Aegis Review 方向 A 智能数字媒体内容审核系统契约骨架"
-    >
+    <meta name="description" content="影鉴 Aegis Review 智能数字媒体内容审核系统">
     <title>影鉴 Aegis Review</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
-    <main class="shell">
+    <main class="workspace">
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">鉴</span>
-          <span>影鉴 Aegis Review</span>
+          <span class="brand-name">影鉴 Aegis Review</span>
         </div>
-        <a class="health-link" href="/api/health">查看服务健康状态</a>
+        <div class="topbar-right">
+          <div class="health-badges" id="health-badges" role="status" aria-live="polite"></div>
+          <nav class="stats-bar" id="stats-bar" aria-label="审核统计">
+            <div class="stat-item stat-total">
+              <span class="stat-label">总任务</span>
+              <span class="stat-value" id="stat-total">-</span>
+            </div>
+            <div class="stat-item stat-pass">
+              <span class="stat-label">通过</span>
+              <span class="stat-value" id="stat-pass">-</span>
+            </div>
+            <div class="stat-item stat-review">
+              <span class="stat-label">待复核</span>
+              <span class="stat-value" id="stat-review">-</span>
+            </div>
+            <div class="stat-item stat-reject">
+              <span class="stat-label">不通过</span>
+              <span class="stat-value" id="stat-reject">-</span>
+            </div>
+            <div class="stat-item stat-failed">
+              <span class="stat-label">失败</span>
+              <span class="stat-value" id="stat-failed">-</span>
+            </div>
+          </nav>
+        </div>
       </header>
 
-      <section class="intro">
-        <h1>清晰、可追溯的智能内容审核。</h1>
-        <p>
-          当前仓库处于团队契约骨架阶段。健康检查、领域类型、状态流转与
-          JSON 持久化边界已经锁定；任务 API、CV 管线和三栏工作台将由五名成员
-          按各自任务书完成。
-        </p>
-      </section>
+      <div class="model-notice" id="model-notice" hidden role="alert">
+        模型未就绪，暂时无法创建并分析任务。
+      </div>
 
-      <section class="contract-grid" aria-label="团队实现边界">
-        <article class="contract-item">
-          <span>01 / API</span>
-          <h2>先返回任务，再后台分析</h2>
-          <p>固定 HTTP 状态、错误结构与 created 到 completed 的任务生命周期。</p>
-        </article>
-        <article class="contract-item">
-          <span>02 / CV</span>
-          <h2>检测、证据、规则可解释</h2>
-          <p>记录类别、置信度、边界框和证据帧，输出三档审核结论。</p>
-        </article>
-        <article class="contract-item">
-          <span>03 / REVIEW</span>
-          <h2>机器初筛，人工最终确认</h2>
-          <p>负责人可以改判并填写备注，报告能够重新读取和交付。</p>
-        </article>
-      </section>
+      <div class="main-grid">
+        <aside class="task-rail" aria-label="任务与上传">
+          <section class="upload-compact" id="upload-panel" aria-label="新建审核任务">
+            <h2 class="section-heading">新建任务</h2>
+            <div class="upload-body">
+              <input type="text" id="project-name" class="field-input" placeholder="项目名称，例如：星港遗迹内容审核" maxlength="80" autocomplete="off">
+              <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="点击或拖放上传素材，支持 jpg、jpeg、png、mp4、mov，最大 200MB">
+                <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.mp4,.mov" hidden>
+                <span class="drop-icon" aria-hidden="true">+</span>
+                <span class="drop-text" id="drop-text">拖放或点击上传素材</span>
+                <span class="drop-hint">jpg / jpeg / png / mp4 / mov，最大 200MB</span>
+              </div>
+              <details class="settings-toggle">
+                <summary class="settings-summary">规则阈值设置</summary>
+                <div class="settings-body">
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-risk-classes">风险类别</label>
+                    <input type="text" id="setting-risk-classes" class="field-input" value="enemy">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-reject-conf">不通过阈值</label>
+                    <input type="number" id="setting-reject-conf" class="field-input" value="0.60" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-review-conf">待复核阈值</label>
+                    <input type="number" id="setting-review-conf" class="field-input" value="0.35" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-inference-conf">推理阈值</label>
+                    <input type="number" id="setting-inference-conf" class="field-input" value="0.25" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-sample-interval">采样间隔(s)</label>
+                    <input type="number" id="setting-sample-interval" class="field-input" value="1.0" min="0.1" max="10" step="0.1">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-max-frames">最大帧数</label>
+                    <input type="number" id="setting-max-frames" class="field-input" value="120" min="1" max="120" step="1">
+                  </div>
+                </div>
+              </details>
+              <button class="btn btn-primary" id="btn-upload" disabled>创建并分析</button>
+              <span class="upload-error" id="upload-error" role="alert"></span>
+            </div>
+          </section>
+
+          <hr class="rail-divider">
+
+          <div class="rail-header">
+            <h2 class="section-heading">任务历史</h2>
+            <select class="field-input filter-select" id="status-filter" aria-label="按状态筛选">
+              <option value="">全部状态</option>
+              <option value="created">已创建</option>
+              <option value="queued">排队中</option>
+              <option value="running">分析中</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+            </select>
+          </div>
+          <div class="task-list" id="task-list" role="listbox" aria-label="任务列表">
+            <div class="empty-state">暂无任务</div>
+          </div>
+        </aside>
+
+        <section class="evidence-panel" id="evidence-panel" aria-label="素材与证据">
+          <div class="evidence-empty" id="evidence-empty">
+            <div class="empty-illustration" aria-hidden="true">影</div>
+            <p class="empty-title">选择一个任务或上传新素材</p>
+            <p class="empty-desc">左侧创建任务后，机器将自动分析并展示证据</p>
+          </div>
+
+          <div class="evidence-loading" id="evidence-loading" hidden>
+            <div class="spinner" aria-hidden="true"></div>
+            <p id="evidence-loading-text">加载中…</p>
+          </div>
+
+          <div class="evidence-failed" id="evidence-failed" hidden>
+            <p class="failed-icon" aria-hidden="true">!</p>
+            <p class="failed-title">任务执行失败</p>
+            <p class="failed-message" id="evidence-failed-message"></p>
+            <button class="btn btn-secondary" id="btn-retry" disabled>重新分析</button>
+          </div>
+
+          <div class="evidence-content" id="evidence-content" hidden>
+            <div class="evidence-header">
+              <div class="evidence-meta">
+                <span class="meta-badge" id="evidence-asset-type"></span>
+                <span class="meta-name" id="evidence-asset-name"></span>
+              </div>
+              <span class="status-badge" id="evidence-status-badge"></span>
+            </div>
+            <div class="asset-preview" id="asset-preview" aria-label="素材预览"></div>
+            <div class="detection-summary" id="detection-summary" hidden>
+              <h3 class="subsection-heading">检测汇总</h3>
+              <div class="detection-grid" id="detection-grid"></div>
+            </div>
+            <div class="evidence-frames" id="evidence-frames" hidden>
+              <h3 class="subsection-heading">证据帧</h3>
+              <div class="frames-grid" id="frames-grid"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="review-panel" id="review-panel" aria-label="审核操作">
+          <div class="rule-snapshot" id="rule-snapshot" hidden>
+            <h3 class="subsection-heading">当前规则</h3>
+            <div class="rule-list" id="rule-list"></div>
+          </div>
+
+          <div class="review-placeholder" id="review-placeholder">
+            <p>选择已完成任务以查看审核详情</p>
+          </div>
+
+          <div class="review-content" id="review-content" hidden>
+            <h2 class="section-heading">审核结论</h2>
+            <div class="review-decision-display">
+              <div class="decision-row">
+                <span class="decision-label">自动结论</span>
+                <span class="decision-value" id="review-auto-decision">-</span>
+              </div>
+              <div class="decision-row">
+                <span class="decision-label">最终结论</span>
+                <span class="decision-value" id="review-final-decision">-</span>
+              </div>
+            </div>
+            <fieldset class="review-form" id="review-form" disabled>
+              <legend>人工改判</legend>
+              <div class="decision-options" id="decision-options">
+                <label class="decision-option option-pass">
+                  <input type="radio" name="decision" value="pass">
+                  <span class="option-label">通过</span>
+                </label>
+                <label class="decision-option option-review">
+                  <input type="radio" name="decision" value="review">
+                  <span class="option-label">待复核</span>
+                </label>
+                <label class="decision-option option-reject">
+                  <input type="radio" name="decision" value="reject">
+                  <span class="option-label">不通过</span>
+                </label>
+              </div>
+              <div class="review-field">
+                <label class="field-label" for="reviewer-name">负责人 <span class="required" aria-label="必填">*</span></label>
+                <input type="text" id="reviewer-name" class="field-input" placeholder="填写审核负责人" maxlength="40" required>
+              </div>
+              <div class="review-field">
+                <label class="field-label" for="review-note">备注</label>
+                <textarea id="review-note" class="field-input review-textarea" placeholder="审核备注（选填，最多500字）" maxlength="500" rows="3"></textarea>
+              </div>
+              <button class="btn btn-primary" id="btn-save-review">保存改判</button>
+              <span class="review-feedback" id="review-feedback" role="status"></span>
+            </fieldset>
+
+            <div class="download-section" id="download-section" hidden>
+              <h3 class="subsection-heading">下载报告</h3>
+              <div class="download-buttons">
+                <button class="btn btn-secondary btn-download" id="btn-download-json">JSON 报告</button>
+                <button class="btn btn-secondary btn-download" id="btn-download-csv">CSV 检测表</button>
+                <button class="btn btn-secondary btn-download" id="btn-download-zip">ZIP 审核包</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
+
+    <dialog class="confirm-dialog" id="confirm-dialog" aria-modal="true">
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" id="btn-cancel">取消</button>
+        <button class="btn btn-danger" id="btn-confirm">确认</button>
+      </div>
+    </dialog>
+
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>
