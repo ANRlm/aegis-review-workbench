@@ -191,6 +191,13 @@
     return num;
   }
 
+  function parseInteger(value, defaultValue) {
+    if (value === "" || value === null || value === undefined) return defaultValue;
+    var num = Number(value);
+    if (!isFinite(num)) return defaultValue;
+    return Math.floor(num);
+  }
+
   /* ---- Rendering ---- */
   function renderHealth() {
     if (!state.health) { dom.healthBadges.innerHTML = ""; renderModelNotice(); return; }
@@ -498,7 +505,6 @@
     var abort = new AbortController();
     state.pollAbort = abort;
     state.pollTimeout = setTimeout(function () {
-      state.pollAbort = null;
       state.pollTimeout = null;
       if (state.selectedJobId !== jobId) return;
       apiFetch("/jobs/" + encodeURIComponent(jobId), { signal: abort.signal }).then(function (data) {
@@ -530,9 +536,11 @@
           pollJob(jobId, token);
         }
       }).catch(function (err) {
-        if (state.selectedJobId !== jobId) return;
+        if (err.name === "AbortError" || state.selectedJobId !== jobId) return;
         showEvidenceState("failed");
         dom.evidenceFailedMsg.textContent = err.message || "轮询失败，请检查网络连接后重试。";
+      }).finally(function () {
+        if (state.pollAbort === abort) state.pollAbort = null;
       });
     }, 1000);
   }
@@ -599,7 +607,7 @@
       inference_confidence: parseNumeric(fieldValue("setting-inference-conf"), 0.25),
       min_evidence_frames: 1,
       sample_interval_seconds: parseNumeric(fieldValue("setting-sample-interval"), 1.0),
-      max_sample_frames: parseInt(fieldValue("setting-max-frames"), 10) || 120,
+      max_sample_frames: parseInteger(fieldValue("setting-max-frames"), 120),
     };
   }
 
