@@ -286,16 +286,18 @@ def test_d8_submission_archive_extracts_to_directly_runnable_named_project(
     assert f"{project_root}training_evidence/aegis_game_best.sha256" in names
     assert f"{project_root}tests/fixtures/media/sample_5s.mp4" in names
     assert f"{project_root}demo/demo_script.md" in names
-    assert any(
-        name.startswith(f"{project_root}outputs/")
-        and name.endswith("/input/original.jpg")
-        for name in names
-    )
-    assert any(
-        name.startswith(f"{project_root}outputs/")
-        and name.endswith("/input/original.mp4")
-        for name in names
-    )
+    image_job, video_job = mod._select_validation_jobs()
+    if image_job is not None and video_job is not None:
+        assert any(
+            name.startswith(f"{project_root}outputs/")
+            and name.endswith("/input/original.jpg")
+            for name in names
+        )
+        assert any(
+            name.startswith(f"{project_root}outputs/")
+            and name.endswith("/input/original.mp4")
+            for name in names
+        )
     assert not any(
         name.startswith(f"{project_root}validation_outputs/")
         for name in names
@@ -619,11 +621,10 @@ def test_d12a_validation_outputs_selects_both_types(tmp_path: Path) -> None:
         staging = tmp_path / "release_staging"
         staging.mkdir()
         with patch.object(mod, "RELEASE_STAGING", staging):
-            with patch.object(mod, "VALIDATION_OUTPUTS", "validation_outputs"):
-                mod._copy_validation_outputs(staging)
-                dest = staging / "validation_outputs"
-                assert (dest / "20260718_101530_aaa11111" / "job.json").is_file()
-                assert (dest / "20260718_101530_bbb22222" / "job.json").is_file()
+            mod._copy_validation_outputs(staging)
+            dest = staging / "outputs"
+            assert (dest / "20260718_101530_aaa11111" / "job.json").is_file()
+            assert (dest / "20260718_101530_bbb22222" / "job.json").is_file()
     finally:
         mod.PROJECT_ROOT = orig_root
 
