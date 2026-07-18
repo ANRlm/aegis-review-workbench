@@ -155,15 +155,17 @@ def test_n3_video_async_status_progress_and_evidence_frames(tmp_path: Path) -> N
         while time.monotonic() < deadline:
             resp = client.get(f"/api/jobs/{job_id}")
             assert resp.status_code == 200
-            st = resp.get_json().get("status")
+            job_payload = resp.get_json().get("job") or {}
+            st = job_payload.get("status")
             if st not in seen_statuses:
                 seen_statuses.append(st)
             if st in ("completed", "failed"):
                 break
             time.sleep(0.5)
 
-        assert "completed" == resp.get_json().get("status"), (
-            f"video job ended as {resp.get_json().get('status')}: {resp.get_json().get('error')}"
+        final_job = resp.get_json().get("job") or {}
+        assert "completed" == final_job.get("status"), (
+            f"video job ended as {final_job.get('status')}: {final_job.get('error')}"
         )
         assert "queued" in seen_statuses or "running" in seen_statuses
 

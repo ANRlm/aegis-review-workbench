@@ -120,7 +120,8 @@ def upload(client, asset_path: Path, project_name: str = "QA验收", settings=No
 def poll(client, job_id: str, target: str, timeout: float = 30.0, interval: float = 0.5):
     """Call GET /api/jobs/<job_id> until status == *target* or *timeout*.
 
-    Returns the final JSON payload or raises TimeoutError.
+    Per docs/API.md, the response envelope is ``{"ok":true,"job":{...}}``.
+    Returns the full response body (the outer dict) or raises TimeoutError.
     """
     import time
 
@@ -129,7 +130,8 @@ def poll(client, job_id: str, target: str, timeout: float = 30.0, interval: floa
         resp = client.get(f"/api/jobs/{job_id}")
         if resp.status_code == 200:
             body = resp.get_json() or {}
-            if body.get("status") == target:
+            job = body.get("job") or {}
+            if job.get("status") == target:
                 return body
         time.sleep(interval)
     raise TimeoutError(f"job {job_id} did not reach status={target} within {timeout}s")
@@ -257,10 +259,13 @@ PRIVACY_PATTERNS: list[str] = [
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
-IGNORED_EXTENSIONS = frozenset(
-    {".md", ".yml", ".yaml", ".txt", ".cfg", ".ini", ".pt", ".zip"}
-)
+# Extensions we entirely skip for text scanning (binary / too large)
+BINARY_EXTENSIONS = frozenset({".pt", ".zip", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".ico"})
+
 IGNORED_FILES = frozenset({"poetry.lock", "package-lock.json", "yarn.lock"})
+
+# Whispered docs/tests paths where intentional absolute paths are allowed
+_PRIVACY_WHITELIST_PREFIXES = ("docs/", "tests/")
 
 
 def git_available() -> bool:
@@ -306,12 +311,14 @@ def hygiene_scan(project_root: Path) -> dict[str, str]:
             continue  # white‑listed model weights
 
         size = file_path.stat().st_size
-        if size > MAX_FILE_SIZE and file_path.suffix not in IGNORED_EXTENSIONS:
+        # Large‑file check applies to ALL files regardless of extension
+        if size > MAX_FILE_SIZE and file_path.suffix not in (".pt", ".zip"):
             findings[str(file_path.relative_to(project_root))] = (
                 f"large file {size} bytes > {MAX_FILE_SIZE}"
             )
 
-        if file_path.suffix in IGNORED_EXTENSIONS:
+        # Skip binary extensions for text scanning
+        if file_path.suffix.lower() in BINARY_EXTENSIONS:
             continue
         if file_path.name in IGNORED_FILES:
             continue
@@ -330,11 +337,8 @@ def hygiene_scan(project_root: Path) -> dict[str, str]:
         for pattern in PRIVACY_PATTERNS:
             m = re.search(pattern, text)
             if m:
-                # allow intentional references in docs/
-                rel = str(file_path.relative_to(project_root))
-                if not rel.startswith("docs" + os.sep) and not rel.startswith(
-                    "tests" + os.sep
-                ):
+                rel = str(file_path.relative_to(project_root)).replace("\\", "/")
+                if not any(rel.startswith(p) for p in _PRIVACY_WHITELIST_PREFIXES):
                     findings[rel] = f"absolute path: {m.group()}"
 
     return findings
