@@ -103,6 +103,7 @@ def test_analysis_report_serializes_stable_contract() -> None:
         "final_decision": None,
         "reviewer": None,
         "note": None,
+        "downloads": {},
     }
 
 

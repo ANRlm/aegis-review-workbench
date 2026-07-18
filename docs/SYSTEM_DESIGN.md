@@ -31,6 +31,16 @@ Flask API ── JobService ── ThreadPoolExecutor(max_workers=1)
 | `cv/` | 采样、检测、规则、证据和产物 | HTTP 与任务列表 |
 | `templates/static` | 工作台与 API 交互 | 自行推导后端状态 |
 
+应用工厂只创建一个 `JobService`，启动时完成遗留任务恢复，并将实例注册到：
+
+```python
+app.extensions["aegis_job_service"]
+```
+
+后端路由只能消费该实例，不得在 `api.py` 中创建第二个线程池或复制状态机。
+组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线；CV 合入前使用明确
+报错的不可用实现，使 Flask 可以启动而分析任务留下可重试的失败记录。
+
 ## 3. 数据流
 
 ### 创建与分析
@@ -46,6 +56,9 @@ Flask API ── JobService ── ThreadPoolExecutor(max_workers=1)
 ### 查询与人工审核
 
 前端每秒查询任务详情；到达 `completed/failed` 后停止轮询。人工改判只修改报告中的 `final_decision/reviewer/note`，不改变任务状态或覆盖 `auto_decision`。
+
+任务详情中的 `asset_url` 由后端根据 `asset_file` 派生，并复用安全产物接口
+读取 `input/original.<ext>`；客户端不能提交或拼接磁盘路径。
 
 ## 4. 并发与持久化
 

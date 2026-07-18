@@ -16,6 +16,7 @@
 ## 独占路径
 
 - `app.py`
+- `aegis_review/__init__.py`（应用工厂和服务生命周期注入）
 - `aegis_review/config.py`
 - `aegis_review/domain.py`
 - `aegis_review/storage.py`
