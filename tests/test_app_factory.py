@@ -8,7 +8,7 @@ from typing import Any
 import app as app_entrypoint
 
 from aegis_review import create_app
-from aegis_review.config import AppConfig
+from aegis_review.config import AppConfig, PROJECT_ROOT
 from aegis_review.domain import (
     AssetInput,
     AuditSettings,
@@ -88,6 +88,41 @@ def test_default_unavailable_analyzer_leaves_retryable_failed_job(
     failed = service.get_job(job["job_id"])
     assert failed["status"] == "failed"
     assert failed["error"] == "CV 分析组件尚未就绪。"
+
+
+def test_default_job_service_uses_trained_model_when_present(
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "aegis_game_best.pt").write_bytes(
+        (PROJECT_ROOT / "models" / "aegis_game_best.pt").read_bytes()
+    )
+    image_bytes = next(
+        (PROJECT_ROOT / "dataset" / "images" / "val").glob("*.jpg")
+    ).read_bytes()
+
+    flask_app = create_app(AppConfig(project_root=tmp_path, testing=True))
+    service: JobService = flask_app.extensions["aegis_job_service"]
+    job = service.create_job(
+        AssetInput(
+            original_name="real.jpg",
+            extension="jpg",
+            media_type=MediaType.IMAGE,
+            stream=BytesIO(image_bytes),
+        ),
+        "真实模型集成",
+        AuditSettings(),
+    )
+
+    service.enqueue_analysis(job["job_id"])
+    service.shutdown(wait=True)
+
+    completed = service.get_job(job["job_id"])
+    assert completed["status"] == "completed"
+    report = service.get_report(job["job_id"])
+    assert report["job_id"] == job["job_id"]
+    assert report["evidence_frames"]
 
 
 def test_entrypoint_disables_reloader_even_in_debug_mode(
