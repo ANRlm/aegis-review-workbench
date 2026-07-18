@@ -18,7 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1].resolve()
 TESTS_DIR = PROJECT_ROOT / "tests"
 FIXTURE_SUPPORT = TESTS_DIR / "fixtures" / "support.py"
 RELEASE_STAGING = PROJECT_ROOT / "tmp" / "release"
-VALIDATION_OUTPUTS = "validation_outputs"
+# Selected real jobs must land in the runtime directory so the extracted
+# submission can reopen them immediately.
+VALIDATION_OUTPUTS = "outputs"
 
 _HAS_FIXTURE_SUPPORT = FIXTURE_SUPPORT.is_file()
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
@@ -88,7 +90,17 @@ def _extract_surname() -> str:
 # ---------------------------------------------------------------------------
 def _git_available() -> bool:
     import shutil as _shutil
-    return _shutil.which("git") is not None
+
+    if _shutil.which("git") is None:
+        return False
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def _run_pytest_gate() -> bool | str:
@@ -357,18 +369,20 @@ def _translate(gates: dict[str, bool | str]) -> tuple[bool, list[str]]:
 # ---------------------------------------------------------------------------
 MANIFEST_PATTERNS = [
     "app.py", "requirements.txt", "environment.yml",
-    "Dockerfile", "compose.yaml", ".dockerignore", ".editorconfig", "pytest.ini",
+    "Dockerfile", "compose.yaml", ".dockerignore", ".editorconfig", ".gitignore",
+    "pytest.ini",
     "README.md", "AGENTS.md",
     "aegis_review/**/*.py",
-    "static/**", "templates/**",
+    "static/**/*", "templates/**/*",
     "prompts/**/*.md",
     "scripts/*.py",
     "tests/**/*.py",
+    "tests/fixtures/media/**/*",
     "models/aegis_game_best.pt",
     "docs/**/*.md",
     "screenshots/*.png", "screenshots/*.jpg", "screenshots/*.jpeg",
-    "dataset/**",
-    "training_evidence/**",
+    "dataset/**/*",
+    "training_evidence/**/*",
 ]
 
 EXCLUDE_PREFIXES = (
@@ -463,14 +477,22 @@ def _build_archive(package_dir: Path) -> tuple[Path, str]:
         shutil.rmtree(RELEASE_STAGING)
     RELEASE_STAGING.mkdir(parents=True)
 
+    package_name = f"{_extract_surname()}_A_day08"
+    submission_root = RELEASE_STAGING / package_name
+
     for src in _collect_files():
-        dst = RELEASE_STAGING / src.relative_to(PROJECT_ROOT)
+        dst = submission_root / src.relative_to(PROJECT_ROOT)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
 
-    _copy_validation_outputs(RELEASE_STAGING)
+    _copy_validation_outputs(submission_root)
 
-    archive_path = package_dir / f"{_extract_surname()}_A_day08.zip"
+    demo_script = submission_root / "docs" / "DEMO_SCRIPT.md"
+    demo_entry = submission_root / "demo" / "demo_script.md"
+    demo_entry.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(demo_script, demo_entry)
+
+    archive_path = package_dir / f"{package_name}.zip"
     archive_path.parent.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(str(archive_path), "w", zipfile.ZIP_DEFLATED) as zf:

@@ -11,7 +11,7 @@
 
 ```text
 conda run -n aegis-review pytest -q -rs
-→ 370 passed in 11.70s
+→ 373 passed in 13.59s
 
 conda run -n aegis-review python -m py_compile app.py scripts/package_release.py
 → exit 0
@@ -32,7 +32,7 @@ docker compose build
 → success
 
 docker compose run --rm app pytest -q -rs
-→ 361 passed, 9 skipped in 15.88s
+→ 364 passed, 9 skipped in 17.15s
 
 docker compose up -d
 curl --fail http://127.0.0.1:7880/api/health
@@ -92,8 +92,9 @@ result/audit_package.zip
 
 `scripts/package_release.py --check` 的八项门禁全部 PASS。两份独立目录构建的
 `李_A_day08.zip` 字节完全一致，`ZipFile.testzip() is None`；最终包包含
-104 个成员、16 张截图、真实图片验证目录和真实视频验证目录。精确 SHA-256
-记录在最终 PR 与交付回执中，避免包内文档引用包自身哈希。
+106 个成员、16 张截图、真实图片 `outputs/` 和真实视频 `outputs/`。压缩包
+只解出一个 `李_A_day08/` 项目目录，并额外提供 `demo/demo_script.md`。
+精确 SHA-256 记录在最终 PR 与交付回执中，避免包内文档引用包自身哈希。
 
 ## 6. 结论
 

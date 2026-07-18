@@ -58,6 +58,29 @@ def test_d1_output_job_dirs_match_contract() -> None:
     if not jobs:
         pytest.skip("no job directories in outputs/")
 
+
+def test_d1b_git_probe_requires_an_actual_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fixtures import support
+
+    monkeypatch.setattr(support, "PROJECT_ROOT", tmp_path)
+    assert support.git_available() is False
+
+
+def test_d1c_release_git_probe_requires_an_actual_repository(
+    tmp_path: Path,
+) -> None:
+    mod = _pr_module()
+    original_root = mod.PROJECT_ROOT
+    try:
+        mod.PROJECT_ROOT = tmp_path
+        assert mod._git_available() is False
+    finally:
+        mod.PROJECT_ROOT = original_root
+
+
 def test_d2_no_secrets_or_privacy_paths_in_tracked_files() -> None:
     if not git_available():
         pytest.skip("git not installed")
@@ -238,6 +261,50 @@ def test_d8_deterministic_zip_build_is_stable(tmp_path: Path) -> None:
                 assert info.compress_type == zipfile.ZIP_DEFLATED
             for n in zf.namelist():
                 assert ".." not in n and not n.startswith("/") and "last.pt" not in n
+
+
+def test_d8_submission_archive_extracts_to_directly_runnable_named_project(
+    tmp_path: Path,
+) -> None:
+    mod = _pr_module()
+    archive, _sha = mod._build_archive(tmp_path)
+    project_root = f"{mod._extract_surname()}_A_day08/"
+
+    with zipfile.ZipFile(archive) as zf:
+        names = set(zf.namelist())
+        readme = zf.read(f"{project_root}README.md").decode("utf-8")
+
+    assert names
+    assert all(name.startswith(project_root) for name in names)
+    assert f"{project_root}README.md" in names
+    assert f"{project_root}requirements.txt" in names
+    assert f"{project_root}app.py" in names
+    assert f"{project_root}templates/index.html" in names
+    assert f"{project_root}static/styles.css" in names
+    assert f"{project_root}static/app.js" in names
+    assert f"{project_root}dataset/data.yaml" in names
+    assert f"{project_root}training_evidence/aegis_game_best.sha256" in names
+    assert f"{project_root}tests/fixtures/media/sample_5s.mp4" in names
+    assert f"{project_root}demo/demo_script.md" in names
+    image_job, video_job = mod._select_validation_jobs()
+    if image_job is not None and video_job is not None:
+        assert any(
+            name.startswith(f"{project_root}outputs/")
+            and name.endswith("/input/original.jpg")
+            for name in names
+        )
+        assert any(
+            name.startswith(f"{project_root}outputs/")
+            and name.endswith("/input/original.mp4")
+            for name in names
+        )
+    assert not any(
+        name.startswith(f"{project_root}validation_outputs/")
+        for name in names
+    )
+    assert "cd 李_A_day08" in readme
+    assert "conda activate yolo" in readme
+    assert "python app.py --host 127.0.0.1 --port 7880" in readme
 
 ###############################################################################
 # D9  Hygiene regression (git‑dependent; skip in container)
@@ -554,11 +621,10 @@ def test_d12a_validation_outputs_selects_both_types(tmp_path: Path) -> None:
         staging = tmp_path / "release_staging"
         staging.mkdir()
         with patch.object(mod, "RELEASE_STAGING", staging):
-            with patch.object(mod, "VALIDATION_OUTPUTS", "validation_outputs"):
-                mod._copy_validation_outputs(staging)
-                dest = staging / "validation_outputs"
-                assert (dest / "20260718_101530_aaa11111" / "job.json").is_file()
-                assert (dest / "20260718_101530_bbb22222" / "job.json").is_file()
+            mod._copy_validation_outputs(staging)
+            dest = staging / "outputs"
+            assert (dest / "20260718_101530_aaa11111" / "job.json").is_file()
+            assert (dest / "20260718_101530_bbb22222" / "job.json").is_file()
     finally:
         mod.PROJECT_ROOT = orig_root
 
