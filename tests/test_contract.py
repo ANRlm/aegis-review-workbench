@@ -11,8 +11,16 @@ from aegis_review.service import InvalidStatusTransition, validate_transition
 from aegis_review.storage import atomic_write_json, read_json
 
 
-def test_health_exposes_service_and_dependency_readiness(tmp_path: Path) -> None:
-    config = AppConfig(project_root=tmp_path, testing=True)
+def test_health_exposes_service_and_dependency_readiness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    external_model = tmp_path / "external" / "aegis_game_best.pt"
+    external_model.parent.mkdir()
+    external_model.write_bytes(b"model")
+    monkeypatch.setenv("AEGIS_MODEL_PATH", str(external_model))
+
+    config = AppConfig(project_root=tmp_path / "project", testing=True)
     app = create_app(config)
 
     response = app.test_client().get("/api/health")
