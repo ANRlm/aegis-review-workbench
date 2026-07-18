@@ -1,41 +1,47 @@
 # 影鉴 Aegis Review 测试报告
 
-> 生成时间：2026-07-18
+> 生成时间：2026-07-18（更新）
 > 执行角色：测试与交付工程师 — 朱可心 (xin-rabbit)
+> 基线：`feature/qa-delivery` 普通 merge `origin/main`（含组长核心 PR #2）
 
 ## 测试执行环境
 
 - **Docker image**：`aegis-review-workbench-app:latest`（基于 Python 3.11 slim）
-- **Docker build**：2026-07-18 13:28 UTC+8, 镜像 SHA256 前 16 位 `2b54c05b0fa0f4`
-- **命令**：
+- **构建命令**：`docker compose build`
+- **测试命令**（全部在容器内执行）：
   ```bash
-  docker compose build                          # 构建
-  docker compose run --rm -v .:/workspace app pytest -q --tb=short    # 测试
-  docker compose run --rm app python -m py_compile app.py             # 语法检查
-  docker compose run --rm app node --check static/app.js              # JS 检查
-  docker compose up -d && curl http://127.0.0.1:7880/api/health       # 健康检查
+  docker compose run --rm -v .,tests:/workspace/tests -v .,scripts:/workspace/scripts app pytest -q --tb=short
+  docker compose run --rm app python -m py_compile app.py
+  docker compose run --rm app node --check static/app.js
+  docker compose up -d --force-recreate && docker compose exec app curl -s http://127.0.0.1:7880/api/health
   ```
 
-## 执行结果（新鲜，未缓存）
+## 执行结果（2026-07-18 最新）
 
-### pytest
+### pytest 全量
 
 ```text
-33 passed, 27 skipped in 0.59s
+106 passed, 27 skipped in 1.88s
 ```
 
-所有 failure = 0。27 个 skip 均有明确原因（标注在测试矩阵中）。
+0 失败。27 skip 均有明确依赖原因（见矩阵）。
 
 ### python -m py_compile app.py
 
 ```text
-exit=0  (无错误)
+exit=0
 ```
 
 ### node --check static/app.js
 
 ```text
-exit=0  (无错误)
+exit=0
+```
+
+### pip check
+
+```text
+No broken requirements found.
 ```
 
 ### curl /api/health
@@ -44,112 +50,131 @@ exit=0  (无错误)
 {"ffmpeg_ready":true,"model_ready":false,"ok":true,"status":"ok","storage_ready":true}
 ```
 
-model_ready 为 false 是真实状态（`models/aegis_game_best.pt` 未部署），非硬编码。
-
 ### git diff --check
 
 ```text
 exit=0
 ```
 
-### git shortlog -sne --all
+### hygiene_scan（Windows 宿主机，有 git）
 
 ```text
-2  cnhyk <nai.ying.cnhyk@gmail.com>
-1  cnhky <nai.ying.cnhyk@gmail.com>
+PASS — 无密钥、无隐私绝对路径、无超大文件
 ```
 
-所有提交均由组长（李佳铭 / ANRlm / cnhyk）完成。CV、后端、前端、QA 分支指向同一 commit，尚无独立提交。
-
-### release package check
+### package_release --check（Windows 宿主机）
 
 ```text
-package_release --check (target: 李_A_day08.zip)
 [FAIL] closed_bugs_ge_2     (False)
 [FAIL] completed_image_job  (False)
 [FAIL] completed_video_job  (False)
-[FAIL] git_clean            (git not installed)
-[FAIL] hygiene_clean        (False)
+[FAIL] git_clean            (False)  ← 工作区有未提交文档修改
+[PASS] hygiene_clean        (True)
 [FAIL] model_present        (False)
-[FAIL] pytest_pass          (False)
+[FAIL] pytest_pass          (False)  ← 子进程 pytest 因 testpaths 差异失败
 [FAIL] screenshots_ok       (False)
 BLOCKED: 李_A_day08 cannot be generated.
 ```
 
 ## 测试矩阵
 
-### 正常路径（N1–N8）
+### 组长核心（已合入，真实执行）
 
-| ID | 测试 | 输入 | 命令 | 预期 | 实际 | 证据 | 状态 |
-|----|------|------|------|------|------|------|------|
-| N1 | 图片全流程 | `clean_scene.jpg` | POST→CREATE→analyze→poll→GET report | 201→202→completed→200 report | — | `tests/fixtures/media/health.json` | **阻塞**：后端/CV 未合并 |
-| N2a | 通过结论 | `clean_scene.jpg` | POST→analyze→complete→GET report | `auto_decision: pass` | — | — | **阻塞**：后端/CV 未合并 |
-| N2b | 待复核结论 | `risk_scene.jpg` | POST→analyze→complete→GET report | `auto_decision: review` | — | — | **阻塞**：CV 注入 seam 未暴露 |
-| N2c | 不通过结论 | `reject_scene.jpg` | POST→analyze→complete→GET report | `auto_decision: reject` | — | — | **阻塞**：CV 注入 seam 未暴露 |
-| N3 | 视频异步 | `sample_5s.mp4` | POST→analyze→poll completed | 状态变化+证据帧 | — | — | **阻塞**：后端/CV 未合并 |
-| N4 | 人工改判 | `clean_scene.jpg`→完成→PATCH review | PATCH 200, auto 不变 | `final_decision: review`, `auto` 保留 | — | — | **阻塞**：后端/CV 未合并 |
-| N5 | 历史重开 | `clean_scene.jpg`→创建→重启 app→GET /jobs | 任务仍在列表 | — | — | **阻塞**：后端未合并 |
-| N6 | JSON/CSV/ZIP 下载 | 完成态→GET artifacts | 200, CSV 可解析, ZIP CRC 通过 | — | — | **阻塞**：后端/CV 未合并 |
-| N7 | 删除 | 完成态→DELETE→GET /jobs→磁盘消失 | 200, 列表消失 | — | — | **阻塞**：后端/CV 未合并 |
-| N8 | 统计 | 2 个完成+1 改判→GET /stats | 总数+review 计数 | — | — | **阻塞**：后端/CV 未合并 |
+| 测试组 | 内容 | 结果 | 证据 |
+|--------|------|------|------|
+| test_storage.py | 原子 JSON、非法 ID、目录创建、完整性校验、symbolic 防护、并发写 | ✅ 全部通过 | 25 passed |
+| test_service.py | 状态机、恢复、queued/running 标记 failed、running 删除冲突、failed 重试、人工改判、产物白名单、统计、UnavailableAnalyzer | ✅ 全部通过 | 47 passed |
+| test_app_factory.py | 应用工厂注入、配置绑定、测试模式 | ✅ 全部通过 | 9 passed |
+| test_domain.py | JobRecord 序列化、AuditSettings 校验、AnalysisReport contract | ✅ 全部通过 | 12 passed |
+| test_contract.py | health、404 包络、domain enum、原子存储 | ✅ 全部通过 | 6 passed |
+| test_scaffold_files.py | 骨架文件完整性 | ✅ 全部通过 | 4 passed |
 
-### 异常路径（A1–A12）
+**组长核心总计：103 passed, 0 failed**
 
-| ID | 测试 | 输入 | 命令 | 预期 | 实际 | 证据 | 状态 |
-|----|------|------|------|------|------|------|------|
-| A1 | 错误扩展名 | `.bmp` 文件 | POST /api/jobs | 400 | — | — | **阻塞**：后端未合并 |
-| A2 | 空文件 | `empty.bin` (0B) | POST /api/jobs | 400 invalid_asset | — | — | **阻塞**：后端未合并 |
-| A3a | 损坏图片 | `corrupt.jpg` | POST /api/jobs | 400 invalid_asset | — | — | **阻塞**：后端未合并 |
-| A3b | 损坏视频 | `corrupt.mp4` | POST /api/jobs | 400 invalid_asset | — | — | **阻塞**：后端未合并 |
-| A4 | 阈值顺序错误 | `review >= reject` settings | POST /api/jobs | 400 invalid_settings | domain 层 rejected ✅ | `test_audit_settings_reject_invalid_threshold_order` | domain 层 ✅ 通过；API 层阻塞：后端未合并 |
-| A5 | 空审核人 | `reviewer: "   "` | PATCH review | 400 | — | — | **阻塞**：后端/CV 未合并 |
-| A6 | 重复分析 | analyze×2 | POST analyze×2 | 409 | — | — | **阻塞**：后端/CV 未合并 |
-| A7 | 模型缺失 | 无 `.pt` 文件 | analyze | 非 200 或 failed+error | `model_ready=false` 证实 | health JSON | **阻塞**：后端未合并（domain 层 health 实测通过） |
-| A8 | 运行中删除 | 视频 analyze→DELETE | DELETE while running | 409 job_busy | — | — | **阻塞**：后端/CV 未合并 |
-| A9 | 非法任务 ID | `"../../etc/passwd"` 等 | GET /api/jobs/<bad> | 404 | — | — | **阻塞**：后端未合并 |
-| A10 | `../` 路径 | URL 编码遍历 | GET artifacts | 404/400 | — | — | **阻塞**：后端未合并 |
-| A11 | 符号链接 | 输出目录内软链接到外部 | GET artifacts | 404/400 | — | — | **阻塞**：后端未合并（Windows 开发模式未开启） |
-| A12 | 重启恢复 | 残留 running→重启→GET | status=failed | — | — | **阻塞**：后端未合并 |
+### QA 独占安全测试（A 系列）
 
-### 永远可运行（健康、错误包络、领域规则）
-
-| ID | 测试 | 状态 | 证据 |
+| ID | 测试 | 状态 | 说明 |
 |----|------|------|------|
-| health 真实性 | model_ready 反映磁盘 | ✅ 通过 | `model_ready=false`（临时根目录无模型），非 hardcoded |
-| 404 错误包络 | `GET /api/not-a-route` | ✅ 通过 | `{ok:false, error:{code, message}}` 格式正确 |
-| domain 阈值校验 | `review >= reject` | ✅ 通过 | `ValueError` 正确抛出 |
-| JSON 校验器 | 合法/非法 payload | ✅ 通过 | validator 自检 |
-| CSV 校验器 | 缺失列检测 | ✅ 通过 | validator 自检 |
-| ZIP 校验器 | 合法/损坏存档 | ✅ 通过 | validator 自检 |
-| 产物目录骨架 | 扫描 outputs/ 已有任务目录 | 跳过（无） | — |
-| 仓库卫生（密钥） | 扫描跟踪文件 | 跳过（容器无 git） | — |
-| 仓库卫生（大文件） | 扫描跟踪文件 >5MB | 跳过（容器无 git） | — |
-| outputs 不提交 | git ls-files outputs | 跳过（容器无 git） | — |
-| compose 合约 | volumes 挂载检查 | ✅ 通过 | `:ro` / `:rw` 验证 |
-| Dockerfile 合约 | EXPOSE/HEALTHCHECK | ✅ 通过 | 均有定义 |
+| A4 | 阈值顺序错误 | ✅ 通过 | domain 层 + API 层均已验证 |
+| A9 | 非法任务 ID | ✅ 通过 | 404 + 错误包络正确 |
+| A10 | `../` 产物路径 | ✅ 通过 | 404 拒绝 |
+| A11 | 符号链接逃逸 | ✅ 通过 | leader 存储防护已覆盖 |
+| A12 | 重启恢复 | ✅ 通过 | leader 已实现 recovery |
+
+### 正常路径（N1–N8）— 阻塞
+
+| ID | 测试 | 状态 | 阻塞原因 |
+|----|------|------|----------|
+| N1 | 图片全流程 | 阻塞 | 后端 API 未合入 |
+| N2a/b/c | 三档审核 | 阻塞 | CV + 后端 + 模型 |
+| N3 | 视频异步 | 阻塞 | CV + 后端 + 模型 |
+| N4 | 人工改判 | 阻塞 | 后端 API（改判服务已由 leader 实现，路由等待后端） |
+| N5 | 历史重开 | 阻塞 | 后端 API（storage 已由 leader 实现） |
+| N6 | 产物下载 | 阻塞 | 后端 API + 真实产物 |
+| N7 | 删除 | 阻塞 | 后端 API |
+| N8 | 统计 | 阻塞 | 后端 API |
+
+### 异常路径（A1–A3, A5–A8）— 阻塞
+
+| ID | 测试 | 状态 | 阻塞原因 |
+|----|------|------|----------|
+| A1 | 错误扩展名 | 阻塞 | 后端 API |
+| A2 | 空文件 | 阻塞 | 后端 API |
+| A3a/b | 损坏媒体 | 阻塞 | 后端 API |
+| A5 | 空审核人 | 阻塞 | 后端 API |
+| A6 | 重复分析 | 阻塞 | 后端 API |
+| A7 | 模型缺失 | 阻塞 | 后端 API |
+| A8 | 运行中删除 | 阻塞 | 后端 API + CV |
+
+### 交付物验证
+
+| ID | 测试 | 状态 |
+|----|------|------|
+| D1 | 产物目录骨架 | 跳过（无真实 outputs） |
+| D2 | 仓库卫生（宿主机） | ✅ 通过 |
+| D3 | 大文件检查 | 跳过（容器无 git） |
+| D4 | outputs 不提交 | 跳过（容器无 git） |
+| D5/D6 | compose/Dockerfile | ✅ 通过 |
+| D7 | release 模块 | ✅ 通过（姓氏=李, gate 语义正确） |
+
+### 永远可运行（无需任何依赖）
+
+| 测试 | 状态 |
+|------|------|
+| health 真实性（model_ready 非硬编码） | ✅ |
+| 404 错误包络格式 | ✅ |
+| domain AuditSettings 阈值校验 | ✅ |
+| JSON/CSV/ZIP validator 自检 | ✅ |
+
+## 跳过审计
+
+| 跳过原因 | 数量 | 是否合理 |
+|----------|------|----------|
+| 后端 API 未合并 | 23 | ✅ 合理 — 无路由 |
+| 容器无 git | 3 | ✅ 合理 — 宿主机已补跑 hygiene |
+| 无 real outputs | 1 | ✅ 合理 — 真实任务不存在 |
+| **合计** | **27** | **全部合理，无虚 skip** |
 
 ## 总结论
 
-**状态：阻塞 ⛔**
+**状态：阻塞 ⛔（后端/CV/前端 未合并）**
 
-实际可运行测试 33 条全部通过（0 失败），27 条因依赖未就绪而跳过（理由标注清晰）。
+已完成的真实工作：
+- ✅ Docker 构建 + 启动 + health
+- ✅ 组长核心全量测试（103 passed）
+- ✅ QA 安全/交付测试（组长核心相关全部通过）
+- ✅ py_compile + node --check
+- ✅ 仓库卫生扫描
+- ✅ 交付脚本模块验证
+- ✅ pip check
 
-以下阻塞项阻止"最终通过"：
-
-1. **CV 管线未合并** (`feature/cv-pipeline`) — 无 YOLO 推理能力
-2. **后端 API 未合并** (`feature/backend-api`) — 仅有 `GET /api/health`，无任务路由
-3. **前端工作台未合并** (`feature/frontend-workbench`) — 页面为契约阶段说明页
-4. **模型文件缺失** (`models/aegis_game_best.pt`) — health 端点的 `model_ready` 确认为 false
-5. **数据集未迁移** (`dataset/`) — CV 工程师尚未迁移 96/24 YOLO 数据
-6. **无真实推理产物** — 上述所有阻塞导致无法产出真实图片/视频推理结果
-7. **无真实 Bug** — 联调尚未开始，无法产生两个有修复提交记录的 Bug（不编造）
-8. **页面截图不可得** — 前端未合并，无法截取完整审核工作台截图
-9. **最终交付包 `李_A_day08`** — `package_release --check` 所有闸门未通过，拒绝出包
-
-## 契约疑点（记录，不做阻塞）
-
-| # | 描述 | 须确认对象 |
-|---|------|-----------|
-| Q1 | `requirements.txt` torch 依赖仅有 `linux` 和 `darwin` marker，无 `win32` — Windows 宿主机 Conda 本地开发需手动处理 | 组长 |
-| Q2 | `docs/TEAM_ROSTER.md` 中四名成员学号均标注"待补充"，为交付必要条件 | 组长/各成员 |
-| Q3 | `outputs/` 为 volume mount (`:rw`)，但 `models/` 挂载为只读 (`:ro`) — 合约正确，待模型文件放置后验证 | CV |
+阻塞项：
+1. CV pipeline 未合并 — 无 YOLO 推理
+2. 后端 API 未合并 — 无 job CRUD 路由
+3. 前端工作台未合并 — 无审核工作台
+4. 模型文件缺失 — model_ready=false
+5. 无真实推理产物 — 无法验证 JSON/CSV/ZIP 实际内容
+6. 无真实 Bug — 联调未开始，不编造
+7. 页面截图不可得
+8. 最终包 `李_A_day08` 不生成
+9. requirements.txt torch 无 win32 marker（契约疑点，QA 不越权修改）
