@@ -59,6 +59,10 @@
 }
 ```
 
+磁盘中的 `analysis_report.json` 只保存下载产物 basename，例如
+`detections.csv` 和 `audit_package.zip`。后端返回 HTTP 报告时再将其派生为
+上述 `/api/jobs/<job_id>/artifacts/<filename>` URL；CV 管线不拼接 HTTP 地址。
+
 ### Report
 
 ```json

@@ -36,6 +36,18 @@ feature/qa-delivery
 
 组长在 `main` 完成自己的模块和集成；如果需开发较大组长功能，使用 `feature/leader-core` 并以普通 PR 合入。
 
+组长核心 PR 合入前，其他功能分支不要锁定 `JobService` 的实现假设。合入后，
+尚未提交功能代码的成员执行：
+
+```bash
+git fetch origin
+git switch feature/<本人分支>
+git merge --ff-only origin/main
+```
+
+若 `--ff-only` 失败，说明分支已有提交；停止并通知组长决定普通 merge 顺序，
+禁止 rebase 或强推。
+
 ## 3. 提交
 
 每个提交只表达一个可以解释和验证的成果。推荐前缀：

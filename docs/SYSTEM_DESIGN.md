@@ -38,8 +38,9 @@ app.extensions["aegis_job_service"]
 ```
 
 后端路由只能消费该实例，不得在 `api.py` 中创建第二个线程池或复制状态机。
-组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线；CV 合入前使用明确
-报错的不可用实现，使 Flask 可以启动而分析任务留下可重试的失败记录。
+组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线；CV 合入前使用
+`UnavailableAnalyzer`，使 Flask 可以启动而分析任务留下错误为
+“CV 分析组件尚未就绪。”的可重试失败记录。
 
 ## 3. 数据流
 
@@ -65,9 +66,11 @@ app.extensions["aegis_job_service"]
 - 线程池固定一个 worker，避免 CPU 上同时加载多次 YOLO。
 - 每个任务一个内存锁，修改前重新读取磁盘状态。
 - JSON 先写同目录 `.tmp`，`flush + fsync` 后原子替换。
+- 实际临时文件使用不可预测的同目录随机名称，替换失败时保留旧 JSON 并清理临时文件。
 - 列表接口从磁盘读取，因此刷新或重启后仍可打开历史任务。
 - 启动时扫描 `queued/running`，将其标记为 `failed`，错误为“服务中断，任务未完成”；失败任务允许重新进入 `queued`。
 - 正在 `queued/running` 的任务不能删除。
+- `stats.total` 统计所有状态任务；三档结论只读取 completed 报告，failed 单列。
 
 ## 5. 文件安全
 

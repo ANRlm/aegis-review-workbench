@@ -2,18 +2,33 @@
 
 方向 A「智能数字媒体内容审核系统」的五人协作项目。
 
-> 当前阶段：**契约骨架**。仓库可以启动并提供健康检查，已经锁定领域类型、状态流转、错误响应和原子 JSON 写入。任务 API、CV 分析管线、完整三栏工作台和最终验收资料由五名成员根据 `docs/assignments/` 与 `prompts/` 分支完成。
+> 当前阶段：**组长核心已完成**。仓库可以启动并提供健康检查，已经实现安全任务目录、持久化状态机、单 worker 异步编排、失败恢复、人工改判核心、产物白名单和统计服务。任务 HTTP 路由、真实 CV 分析管线、完整三栏工作台和最终验收资料仍由对应成员分支完成。
 
 ## 当前可运行内容
 
 - Flask 应用工厂和 `app.py` 入口；
 - `GET /api/health`；
-- `created → queued → running → completed/failed` 状态契约；
+- 流式 `AssetInput`、持久化 `JobRecord` 和报告 Schema；
+- 安全任务 ID、staging 目录、原子 JSON 与路径边界；
+- `created → queued → running → completed/failed` 持久化状态机；
+- 单 worker 后台执行、任务锁、失败重试与启动恢复；
+- 人工改判、报告读取、产物白名单和任务统计服务；
 - `pass | review | reject` 审核枚举；
 - 默认审核规则和报告 Schema；
-- 原子 JSON 读写；
 - Docker 与 Conda 隔离环境；
 - 五人任务书、提示词和 Git 协作规则。
+
+## 组长核心集成接口
+
+应用工厂只创建一个任务服务，后端从以下位置获取：
+
+```python
+service = app.extensions["aegis_job_service"]
+```
+
+后端不得在 `api.py` 中创建第二个 `JobService`、线程池或状态机。公开服务方法与返回结构见 [系统设计](docs/SYSTEM_DESIGN.md) 和 [API 契约](docs/API.md)。
+
+CV 分支合入前，应用使用 `UnavailableAnalyzer`。调用分析会留下状态为 `failed`、错误为“CV 分析组件尚未就绪。”的可重试任务，不会阻止 Flask 启动。CV 集成时由组长把真实 Detector 绑定到 `analyze_asset`，再作为四参数 runner 注入服务。
 
 ## 项目目标
 
@@ -42,7 +57,7 @@ curl http://127.0.0.1:7880/api/health
 
 浏览器访问 `http://127.0.0.1:7880`。
 
-契约骨架尚未包含 `models/aegis_game_best.pt`，因此首轮健康检查中的 `model_ready` 应为 `false`。CV 分支合入最终权重后应变为 `true`。
+当前尚未包含 `models/aegis_game_best.pt`，因此健康检查中的 `model_ready` 应为 `false`。CV 分支合入最终权重后应变为 `true`。即使模型文件存在，真实分析仍需完成 Detector 与 pipeline 的集成绑定。
 
 停止服务：
 
@@ -78,6 +93,15 @@ docker compose run --rm app python -m py_compile app.py
 docker compose run --rm app node --check static/app.js
 ```
 
+## 环境与重启说明
+
+- Docker 是唯一正式验收路径，Conda 只作为宿主机开发备用。
+- Apple Silicon 使用 ARM64 容器和 CPU 版 PyTorch；首次构建下载依赖时间较长。
+- Compose 只把 `outputs` 挂载为可写目录，把 `models` 挂载为只读目录。
+- Flask 必须保持单进程，`app.py` 即使启用 `--debug` 也禁用 reloader，避免创建两个线程池。
+- 服务重启时，磁盘中遗留的 `queued/running` 会标记为 `failed` 并保留输入文件，可重新分析。
+- Ultralytics 配置写入 `/tmp/ultralytics`，不污染仓库或宿主机用户目录。
+
 ## 协作入口
 
 - 产品要求：[docs/PRD.md](docs/PRD.md)
@@ -91,6 +115,7 @@ docker compose run --rm app node --check static/app.js
 四名成员固定分支：
 
 ```text
+feature/leader-core
 feature/backend-api
 feature/cv-pipeline
 feature/frontend-workbench
@@ -125,7 +150,8 @@ aegis-review-workbench/
 
 ## 当前限制
 
-- 只有健康检查是可调用的业务接口，其余路由由后端成员实现。
+- 只有健康检查是当前可调用的 HTTP 业务接口，其余路由由后端成员实现；组长核心可通过 Python 服务接口测试。
 - 尚未迁移数据集和模型，不能进行真实 YOLO 推理。
 - 当前页面是契约阶段说明页，不是最终审核工作台。
-- 成员姓名、学号和 GitHub 用户名尚未提供，不能邀请协作者或生成最终姓氏命名交付包。
+- 五名成员姓名和 GitHub 账号已登记，学号仍待补充。
+- 最终演示、截图、两个真实 Bug、贡献表和 `李_A_day08` 交付包必须等待成员功能合入并完成真实验收后生成。

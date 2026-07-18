@@ -54,3 +54,21 @@ def test_each_prompt_is_a_self_contained_role_contract() -> None:
         missing = sorted(section for section in required_sections if section not in content)
 
         assert missing == [], f"{prompt.name} 缺少章节: {missing}"
+
+
+def test_readme_publishes_the_leader_core_integration_boundary() -> None:
+    content = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    required_statements = {
+        "组长核心已完成",
+        'app.extensions["aegis_job_service"]',
+        "UnavailableAnalyzer",
+        "feature/leader-core",
+        "CV 分析组件尚未就绪",
+    }
+
+    missing = sorted(
+        statement for statement in required_statements if statement not in content
+    )
+
+    assert missing == []
