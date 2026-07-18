@@ -321,6 +321,35 @@ def test_a11_symlink_escape_prevented(tmp_path: Path) -> None:
 
     assert target.read_text() == "secret"
 
+    # Leader core recovery scans outputs/ on startup — provide a valid
+    # job.json so it doesn't raise CorruptJobError.
+    import json as _json
+    (job_dir / "job.json").write_text(
+        _json.dumps({
+            "job_id": "20260718_101530_deadbeef",
+            "project_name": "symlink test",
+            "asset_name": "test.png",
+            "asset_type": "image",
+            "asset_file": "original.png",
+            "status": "completed",
+            "created_at": "2026-07-18T10:00:00+08:00",
+            "started_at": None,
+            "completed_at": None,
+            "settings": {
+                "risk_classes": ["enemy"],
+                "reject_confidence": 0.60,
+                "review_confidence": 0.35,
+                "inference_confidence": 0.25,
+                "min_evidence_frames": 1,
+                "sample_interval_seconds": 1.0,
+                "max_sample_frames": 120,
+            },
+            "result_file": None,
+            "error": None,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     app = make_app({"project_root": tmp_path})
     skip_if(not has_job_routes(app), SKIP_NO_BACKEND)
 
