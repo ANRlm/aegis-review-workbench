@@ -24,6 +24,9 @@
 
 ## 组长核心集成接口
 
+`feature/leader-core` 阶段的“组长核心已完成”边界仍是后续模块必须遵守的
+持久化契约；最终集成是在该边界上接入 API、CV 与前端，而不是复制服务。
+
 应用工厂只创建一个任务服务，后端从以下位置获取：
 
 ```python
@@ -34,7 +37,8 @@ service = app.extensions["aegis_job_service"]
 
 默认应用工厂会在最终权重存在时将真实 Detector 绑定到 `analyze_asset`；
 权重缺失时才使用 `UnavailableAnalyzer`。测试仍可通过 `create_app(...,
-job_service=fake_service)` 注入确定性服务。
+job_service=fake_service)` 注入确定性服务。缺少权重时分析任务会以
+“CV 分析组件尚未就绪”失败并允许重试，不会让 Flask 启动失败。
 
 ## 项目目标
 
