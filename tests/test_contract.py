@@ -79,6 +79,9 @@ def test_default_audit_settings_match_the_api_contract() -> None:
         ({"min_evidence_frames": 0}, "min_evidence_frames"),
         ({"sample_interval_seconds": 0}, "sample_interval_seconds"),
         ({"max_sample_frames": 121}, "max_sample_frames"),
+        ({"reject_confidence": "high"}, "confidence"),
+        ({"min_evidence_frames": 1.5}, "min_evidence_frames"),
+        ({"max_sample_frames": True}, "max_sample_frames"),
     ],
 )
 def test_invalid_audit_settings_are_rejected(
@@ -103,6 +106,7 @@ def test_analysis_report_serializes_stable_contract() -> None:
         "final_decision": None,
         "reviewer": None,
         "note": None,
+        "downloads": {},
     }
 
 
@@ -111,6 +115,7 @@ def test_analysis_report_serializes_stable_contract() -> None:
     [
         (JobStatus.CREATED, JobStatus.QUEUED),
         (JobStatus.QUEUED, JobStatus.RUNNING),
+        (JobStatus.QUEUED, JobStatus.FAILED),
         (JobStatus.RUNNING, JobStatus.COMPLETED),
         (JobStatus.RUNNING, JobStatus.FAILED),
         (JobStatus.FAILED, JobStatus.QUEUED),

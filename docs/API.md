@@ -28,6 +28,7 @@
   "project_name": "星港遗迹内容审核",
   "asset_name": "opening_scene.mp4",
   "asset_type": "video",
+  "asset_url": "/api/jobs/20260718_101530_a1b2c3d4/artifacts/original.mp4",
   "status": "completed",
   "created_at": "2026-07-18T10:15:30+08:00",
   "started_at": "2026-07-18T10:15:31+08:00",
@@ -39,6 +40,10 @@
 ```
 
 `status` 只允许 `created | queued | running | completed | failed`。
+
+`asset_url` 由后端根据任务中持久化的安全文件名生成。磁盘记录只保存
+`asset_file`（例如 `original.mp4`），不保存 HTTP 地址，也不使用用户原文件名
+作为磁盘路径。
 
 ### Detection
 
@@ -53,6 +58,10 @@
   "evidence_file": "frame_000030.jpg"
 }
 ```
+
+磁盘中的 `analysis_report.json` 只保存下载产物 basename，例如
+`detections.csv` 和 `audit_package.zip`。后端返回 HTTP 报告时再将其派生为
+上述 `/api/jobs/<job_id>/artifacts/<filename>` URL；CV 管线不拼接 HTTP 地址。
 
 ### Report
 
@@ -213,6 +222,10 @@ HTTP 200：
 ```
 
 统计以最终结论为准；未人工改判时使用自动结论。
+
+`total` 表示所有状态的任务总数。`pass/review/reject` 只统计
+`completed` 报告，`failed` 单独统计失败任务，因此这些子项不要求简单相加
+等于 `total`。
 
 ## 4. HTTP 状态
 

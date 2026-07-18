@@ -20,7 +20,7 @@
 
 ## 唯一可写路径与禁止越界项
 
-`app.py`、`aegis_review/config.py`、`domain.py`、`storage.py`、`service.py`、Docker/Compose/Conda/requirements、README、PRD、系统设计、Git 规范和 `demo/`。
+`app.py`、`aegis_review/__init__.py`、`aegis_review/config.py`、`domain.py`、`storage.py`、`service.py`、Docker/Compose/Conda/requirements、README、PRD、系统设计、Git 规范和 `demo/`。
 
 不要实现 `api.py` 的任务路由、`aegis_review/cv/`、`templates/`、`static/` 或 QA 报告。
 
