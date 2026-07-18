@@ -680,6 +680,34 @@ def test_css_no_horizontal_scroll_on_mobile_lte_500(styles_css: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CSS hidden-attribute regression
+# ---------------------------------------------------------------------------
+
+
+def test_css_hidden_attribute_must_use_display_none_important(
+    styles_css: str,
+) -> None:
+    """[hidden] must use display:none!important so flex classes don't override it."""
+    import re
+    assert "[hidden]" in styles_css, "CSS must include a [hidden] selector"
+    match = re.search(r'\[hidden\]\s*\{[^}]*\}', styles_css)
+    assert match is not None, "[hidden] rule must exist in CSS"
+    rule = match.group()
+    assert "display" in rule, "[hidden] must set display property"
+    assert "none" in rule, "[hidden] must set display: none"
+    assert "!important" in rule, "[hidden] must use !important to override display:flex"
+
+
+def test_css_evidence_states_do_not_conflict_with_hidden(
+    styles_css: str,
+) -> None:
+    """Verify evidence-loading and evidence-failed have hidden attr in HTML."""
+    html = (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'id="evidence-loading" hidden' in html or 'id="evidence-loading"\n' in html.replace('\r', '')
+    assert 'id="evidence-failed" hidden' in html or 'id="evidence-failed"\n' in html.replace('\r', '')
+
+
+# ---------------------------------------------------------------------------
 # Model readiness tests
 # ---------------------------------------------------------------------------
 
