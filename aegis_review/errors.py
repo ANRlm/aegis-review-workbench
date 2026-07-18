@@ -16,22 +16,15 @@ def error_response(code: str, message: str, status: int):
 def register_api_error_handlers(api_blueprint):
     """Register exception-to-JSON-error mappings on the API blueprint.
 
-    Each exception type is matched by Flask via MRO, so more specific
-    handlers must be registered before their base types.
+    More specific handlers are registered before generic ones so Flask's
+    MRO-based lookup picks the correct handler for each exception type.
     """
     from .service import (
-        ArtifactNotFoundError,
-        InvalidStatusTransition,
-        JobBusyError,
-        JobExecutionError,
-        JobServiceError,
+        ArtifactNotFoundError, InvalidStatusTransition,
+        JobBusyError, JobExecutionError, JobServiceError,
     )
-    from .storage import (
-        AssetTooLargeError,
-        InvalidJobIdError,
-        JobNotFoundError,
-    )
-    from .validation import ValidationError
+    from .storage import AssetTooLargeError, InvalidJobIdError, JobNotFoundError
+    from .validation import MediaTooLargeError, ValidationError
 
     # -- Service exceptions --
 
@@ -73,14 +66,28 @@ def register_api_error_handlers(api_blueprint):
 
     # -- Validation exceptions --
 
+    @api_blueprint.errorhandler(MediaTooLargeError)
+    def handle_media_too_large(error):
+        return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
+
     @api_blueprint.errorhandler(ValidationError)
     def handle_validation_error(error):
         return error_response("invalid_request", str(error), 400)
 
     @api_blueprint.errorhandler(ValueError)
     def handle_value_error(error):
-        """Catch stray ValueError that are not a known subclass."""
         return error_response("invalid_request", str(error), 400)
+
+    # -- Catch-all (must be last) --
+
+    @api_blueprint.errorhandler(Exception)
+    def handle_unknown_exception(error):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(error, HTTPException):
+            raise error
+        from flask import current_app
+        current_app.logger.exception("Unhandled exception: %s", error)
+        return error_response("internal_error", "\u670d\u52a1\u5668\u5185\u90e8\u9519\u8bef\u3002", 500)
 
     # -- Generic blueprint 404 --
 

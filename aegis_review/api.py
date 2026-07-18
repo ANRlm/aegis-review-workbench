@@ -8,7 +8,7 @@ from .domain import AssetInput, MediaType
 from .errors import error_response, register_api_error_handlers
 from .validation import (
     ValidationError, decode_image_stream, decode_video_stream,
-    detect_media_type, parse_settings, validate_project_name,
+    MediaTooLargeError, detect_media_type, parse_settings, validate_project_name,
 )
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -90,11 +90,19 @@ def create_job():
         return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u4e3a\u7a7a\u3002", 400)
     stream.seek(0)
     config: AppConfig = current_app.config["AEGIS_CONFIG"]
+    if size > config.max_content_length:
+        return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
+    stream.seek(0)
+    config: AppConfig = current_app.config["AEGIS_CONFIG"]
     if media_type is MediaType.IMAGE:
         if not decode_image_stream(stream):
             return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
     elif media_type is MediaType.VIDEO:
-        if not decode_video_stream(stream, config.max_content_length):
+        try:
+            if not decode_video_stream(stream, config.max_content_length, suffix=f".{extension}"):
+                return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
+        except MediaTooLargeError:
+            return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
             return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
     settings_raw = request.form.get("settings")
     try:
@@ -157,6 +165,8 @@ def review_job(job_id: str):
         return error_response("invalid_request", "decision \u5fc5\u987b\u662f pass/review/reject\u3002", 400)
     if not reviewer or not isinstance(reviewer, str) or not reviewer.strip():
         return error_response("invalid_request", "reviewer \u4e0d\u80fd\u4e3a\u7a7a\u3002", 400)
+    if len(reviewer.strip()) > 40:
+        return error_response("invalid_request", "reviewer \u4e0d\u80fd\u8d85\u8fc7 40 \u4e2a\u5b57\u7b26\u3002", 400)
     if note is not None and (not isinstance(note, str) or len(note) > 500):
         return error_response("invalid_request", "note \u4e0d\u80fd\u8d85\u8fc7 500 \u5b57\u3002", 400)
     report = _service().review_job(job_id, decision, reviewer.strip(), note)

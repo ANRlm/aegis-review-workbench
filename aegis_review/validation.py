@@ -2,14 +2,12 @@
 
 These functions validate HTTP input without any filesystem side effects.
 """
-
 from __future__ import annotations
-
 import json
 import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO
-
+import cv2
 from .domain import AuditSettings, MediaType, SUPPORTED_MEDIA_EXTENSIONS
 
 
@@ -17,8 +15,11 @@ class ValidationError(ValueError):
     """Raised when API input validation fails."""
 
 
+class MediaTooLargeError(ValueError):
+    """Raised when a media stream exceeds the maximum allowed size."""
+
+
 def validate_project_name(name: object) -> str:
-    """Strip and validate project_name (1-80 chars after strip)."""
     if not isinstance(name, str):
         raise ValidationError("project_name \u5fc5\u987b\u662f\u5b57\u7b26\u4e32\u3002")
     stripped = name.strip()
@@ -30,7 +31,6 @@ def validate_project_name(name: object) -> str:
 
 
 def detect_media_type(extension: str) -> MediaType:
-    """Detect media type from a lowercased extension string."""
     if not isinstance(extension, str):
         raise ValidationError("\u4e0d\u652f\u6301\u7684\u6587\u4ef6\u6269\u5c55\u540d\u3002")
     ext = extension.lower().strip()
@@ -43,10 +43,6 @@ def detect_media_type(extension: str) -> MediaType:
 
 
 def parse_settings(raw: object) -> AuditSettings:
-    """Parse optional settings JSON string into an AuditSettings.
-
-    Returns default AuditSettings when raw is None or empty.
-    """
     if raw is None:
         return AuditSettings()
     if not isinstance(raw, str):
@@ -69,8 +65,13 @@ def parse_settings(raw: object) -> AuditSettings:
 _COPY_CHUNK = 1024 * 1024  # 1 MB
 
 
-def _stream_to_tempfile(stream: BinaryIO, suffix: str, max_bytes: int) -> str | None:
-    """Copy stream to a temp file in 1 MB chunks, returning path or None on overflow."""
+def _stream_to_tempfile(stream: BinaryIO, suffix: str, max_bytes: int) -> str:
+    """Copy stream to a temp file in fixed-size chunks.
+
+    The temp file is closed before returning.
+    Raises MediaTooLargeError if stream exceeds max_bytes.
+    The temp file is deleted on any error path including overflow.
+    """
     total = 0
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     try:
@@ -80,18 +81,22 @@ def _stream_to_tempfile(stream: BinaryIO, suffix: str, max_bytes: int) -> str | 
                 break
             total += len(chunk)
             if total > max_bytes:
-                return None
+                raise MediaTooLargeError(f"\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002")
             tmp.write(chunk)
         tmp.flush()
-        return tmp.name
     except BaseException:
         tmp.close()
         Path(tmp.name).unlink(missing_ok=True)
         raise
+    else:
+        tmp.close()
+        return tmp.name
 
 
 def decode_image_stream(stream: BinaryIO) -> bool:
-    """Verify that a byte stream can be decoded as a valid image."""
+    """Verify that a byte stream can be decoded as a valid image.
+    On exit the stream is rewound to offset 0; it is NOT closed.
+    """
     try:
         stream.seek(0)
         from PIL import Image
@@ -107,31 +112,31 @@ def decode_image_stream(stream: BinaryIO) -> bool:
             pass
 
 
-def decode_video_stream(stream: BinaryIO, max_bytes: int = 200 * 1024 * 1024) -> bool:
+def decode_video_stream(stream: BinaryIO, max_bytes: int, suffix: str = ".mp4") -> bool:
     """Verify that a byte stream can be opened as a video with at least one frame.
 
-    Reads in 1 MB chunks to avoid loading the entire file into memory.
-    Stream caller must reset position independently (this function does NOT
-    restore the original offset, to allow outer validation to re-read).
+    Reads in 1 MB chunks; raises MediaTooLargeError if max_bytes exceeded.
+    On exit the stream is rewound to offset 0; it is NOT closed.
+    The temp file is always cleaned up.
     """
-    import cv2
+    stream.seek(0)
     try:
+        temp_path = _stream_to_tempfile(stream, suffix, max_bytes)
+    except MediaTooLargeError:
         stream.seek(0)
-        ext = ".mp4"
-        temp_path = _stream_to_tempfile(stream, ext, max_bytes)
-        if temp_path is None:
-            return False  # exceeds max_bytes
+        raise
+    except Exception:
+        stream.seek(0)
+        return False
+    try:
         cap = cv2.VideoCapture(temp_path)
         try:
             ret, _frame = cap.read()
             return bool(ret)
         finally:
             cap.release()
-            Path(temp_path).unlink(missing_ok=True)
-            stream.seek(0)
     except Exception:
-        try:
-            stream.seek(0)
-        except OSError:
-            pass
         return False
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+        stream.seek(0)
