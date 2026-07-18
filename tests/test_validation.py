@@ -132,10 +132,8 @@ class TestIntegrationEdgeCases:
         assert settings == AuditSettings()
         assert settings.to_dict()["risk_classes"] == ["enemy"]
 
-    def test_unknown_extension_fails_before_any_io(self) -> None:
         with pytest.raises(ValidationError, match="不支持"):
             detect_media_type("exe")
-    def test_unknown_extension_fails_before_any_io(self) -> None:
         with pytest.raises(ValidationError, match="\u4e0d\u652f\u6301"):
             detect_media_type("exe")
 
@@ -155,28 +153,20 @@ class TestStreamTracking:
                 return self.inner.seek(offset, whence)
             def tell(self):
                 return self.inner.tell()
-        trax = Tracker(buf)
+        from aegis_review.validation import _stream_to_tempfile
+        path = None
         try:
-            from aegis_review.validation import _stream_to_tempfile, MediaTooLargeError
-            _stream_to_tempfile(trax, ".dat", 9999999)
-        except BaseException:
-            pass
+            path = _stream_to_tempfile(Tracker(buf), ".dat", 9999999)
+        finally:
+            if path:
+                Path(path).unlink(missing_ok=True)
         for s in records:
             assert s == _COPY_CHUNK, f"read({s}) != {_COPY_CHUNK}"
 
-    def test_overflow_deletes_temp_file(self) -> None:
-        from aegis_review.validation import _stream_to_tempfile, MediaTooLargeError
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as marker:
-            mp = marker.name
-        try:
-            _stream_to_tempfile(BytesIO(b"x" * 3000), ".dat", 1000)
-        except MediaTooLargeError:
-            pass
-        leftovers = [p for p in Path(tempfile.gettempdir()).iterdir() if ".dat" in p.suffixes]
-        for p in leftovers:
-            if p.stat().st_size > 2000:
-                p.unlink()
+    def test_overflow_directory_not_scanned(self) -> None:
+        from aegis_review.validation import MediaTooLargeError
+        with pytest.raises(MediaTooLargeError):
+            decode_video_stream(BytesIO(b"x" * 3000), max_bytes=100)
 
 class TestMediaTooLarge:
     def test_raises_on_overflow(self) -> None:
@@ -214,3 +204,37 @@ class TestMediaTooLarge:
         png = BytesIO(b"x" * 100)
         assert decode_video_stream(png, max_bytes=999999) is True
         assert png.tell() == 0
+class TestTempCleanup:
+    def test_success_cleans_temp(self, monkeypatch) -> None:
+        import tempfile, cv2
+        captured = []
+        real = tempfile.NamedTemporaryFile
+        def track(*a, **kw):
+            obj = real(*a, **kw)
+            captured.append(obj.name)
+            return obj
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", track)
+        class FakeCap:
+            def read(self):
+                return (True, None)
+            def release(self):
+                pass
+        monkeypatch.setattr(cv2, "VideoCapture", lambda p: FakeCap())
+        result = decode_video_stream(BytesIO(b"test"), max_bytes=999999)
+        assert result is True
+        for name in captured:
+            assert not Path(name).exists()
+    def test_overflow_raises_and_cleans(self, monkeypatch) -> None:
+        import tempfile, cv2
+        captured = []
+        real = tempfile.NamedTemporaryFile
+        def track(*a, **kw):
+            obj = real(*a, **kw)
+            captured.append(obj.name)
+            return obj
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", track)
+        from aegis_review.validation import MediaTooLargeError
+        with pytest.raises(MediaTooLargeError):
+            decode_video_stream(BytesIO(b"x" * 3000), max_bytes=100)
+        for name in captured:
+            assert not Path(name).exists()

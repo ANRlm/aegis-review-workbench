@@ -374,3 +374,30 @@ class TestArtifactDisposition:
         resp = app.test_client().get('/api/jobs/id/artifacts/test.json')
         cd = resp.headers.get('Content-Disposition', '')
         assert 'attachment' in cd
+
+class TestHttpException:
+    def test_bad_request_returns_400_json(self, tmp_path: Path) -> None:
+        from werkzeug.exceptions import BadRequest
+        app, service = _mock_app(tmp_path)
+        service.get_job.side_effect = BadRequest("secret /Users/example/")
+        resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
+        assert resp.status_code == 400
+        payload = resp.get_json()
+        assert payload["ok"] is False
+        assert "secret" not in str(payload)
+
+    def test_entity_too_large_returns_413_json(self, tmp_path: Path) -> None:
+        from werkzeug.exceptions import RequestEntityTooLarge
+        app, service = _mock_app(tmp_path)
+        service.get_job.side_effect = RequestEntityTooLarge()
+        resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
+        assert resp.status_code == 413
+        assert resp.get_json()["ok"] is False
+
+    def test_runtime_error_returns_500_json(self, tmp_path: Path) -> None:
+        app, service = _mock_app(tmp_path)
+        service.get_job.side_effect = RuntimeError("internal secret")
+        resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
+        assert resp.status_code == 500
+        payload = resp.get_json()
+        assert "secret" not in str(payload)
