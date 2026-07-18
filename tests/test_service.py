@@ -221,6 +221,30 @@ def test_report_job_id_mismatch_marks_job_failed(tmp_path: Path) -> None:
     assert failed.error == "分析报告与任务编号不一致。"
 
 
+def test_report_save_failure_marks_job_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, storage, executor = create_service(tmp_path)
+    job = service.create_job(make_asset(), "项目", AuditSettings())
+
+    def fail_report_save(_path: Path, _payload: dict[str, Any]) -> None:
+        raise OSError("/private/report storage unavailable")
+
+    monkeypatch.setattr(
+        "aegis_review.service.atomic_write_json",
+        fail_report_save,
+    )
+    service.enqueue_analysis(job["job_id"])
+    executor.run_next()
+
+    failed = storage.read(job["job_id"])
+    assert failed.status is JobStatus.FAILED
+    assert failed.result_file is None
+    assert failed.error == "分析任务执行失败。"
+    assert "/private" not in failed.error
+
+
 def test_running_analysis_does_not_block_status_reads(tmp_path: Path) -> None:
     started = Event()
     release = Event()

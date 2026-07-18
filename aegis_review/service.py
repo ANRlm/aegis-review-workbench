@@ -16,7 +16,7 @@ from .domain import (
     AuditSettings,
     JobRecord,
     JobStatus,
-    MediaType,
+    SUPPORTED_MEDIA_EXTENSIONS,
 )
 from .storage import (
     JobAlreadyExistsError,
@@ -65,10 +65,7 @@ ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     JobStatus.FAILED: frozenset({JobStatus.QUEUED}),
 }
 
-SUPPORTED_EXTENSIONS: dict[MediaType, frozenset[str]] = {
-    MediaType.IMAGE: frozenset({"jpg", "jpeg", "png"}),
-    MediaType.VIDEO: frozenset({"mp4", "mov"}),
-}
+SUPPORTED_EXTENSIONS = SUPPORTED_MEDIA_EXTENSIONS
 
 
 def validate_transition(current: JobStatus, target: JobStatus) -> None:

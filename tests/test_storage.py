@@ -19,6 +19,7 @@ from aegis_review.storage import (
     CorruptJobError,
     InvalidJobIdError,
     JobStorage,
+    StorageError,
     UnsafePathError,
     atomic_write_json,
     read_json,
@@ -139,6 +140,25 @@ def test_create_job_rejects_asset_larger_than_limit_and_cleans_staging(
         storage.create(make_record(), make_asset(b"12345"))
 
     assert not storage.paths(JOB_ID, require_exists=False).root.exists()
+    assert list(storage.outputs_dir.glob(".staging-*")) == []
+
+
+def test_create_job_rejects_unsupported_extension_as_second_defense(
+    tmp_path: Path,
+) -> None:
+    storage = JobStorage(tmp_path / "outputs", max_asset_bytes=20)
+    record = make_record()
+    record.asset_file = "original.exe"
+    asset = AssetInput(
+        original_name="opening_scene.exe",
+        extension="exe",
+        media_type=MediaType.VIDEO,
+        stream=BytesIO(b"payload"),
+    )
+
+    with pytest.raises(StorageError, match="扩展名"):
+        storage.create(record, asset)
+
     assert list(storage.outputs_dir.glob(".staging-*")) == []
 
 

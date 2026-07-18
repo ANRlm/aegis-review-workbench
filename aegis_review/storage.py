@@ -13,7 +13,12 @@ import tempfile
 from typing import Any
 import uuid
 
-from .domain import AssetInput, JOB_ID_PATTERN, JobRecord
+from .domain import (
+    AssetInput,
+    JOB_ID_PATTERN,
+    JobRecord,
+    SUPPORTED_MEDIA_EXTENSIONS,
+)
 
 
 COPY_CHUNK_BYTES = 1024 * 1024
@@ -143,6 +148,8 @@ class JobStorage:
         final_paths = self.paths(record.job_id, require_exists=False)
         if os.path.lexists(final_paths.root):
             raise JobAlreadyExistsError("任务编号已存在。")
+        if asset.extension not in SUPPORTED_MEDIA_EXTENSIONS[asset.media_type]:
+            raise StorageError("不支持的素材扩展名。")
         expected_asset_file = f"original.{asset.extension}"
         if record.asset_file != expected_asset_file:
             raise StorageError("任务素材文件名与上传扩展名不一致。")

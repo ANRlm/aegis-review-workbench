@@ -32,6 +32,12 @@ class MediaType(str, Enum):
     VIDEO = "video"
 
 
+SUPPORTED_MEDIA_EXTENSIONS: dict[MediaType, frozenset[str]] = {
+    MediaType.IMAGE: frozenset({"jpg", "jpeg", "png"}),
+    MediaType.VIDEO: frozenset({"mp4", "mov"}),
+}
+
+
 def _require_basename(value: str, field_name: str) -> str:
     if (
         not isinstance(value, str)
@@ -103,6 +109,16 @@ class AuditSettings:
             for value in risk_classes
         ):
             raise ValueError("risk_classes must contain at least one class")
+        confidence_values = (
+            self.reject_confidence,
+            self.review_confidence,
+            self.inference_confidence,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in confidence_values
+        ):
+            raise ValueError("confidence values must be numbers")
         if not (
             0.0
             <= self.inference_confidence
@@ -113,11 +129,23 @@ class AuditSettings:
             raise ValueError(
                 "confidence values must satisfy inference <= review < reject"
             )
-        if self.min_evidence_frames < 1:
+        if (
+            isinstance(self.min_evidence_frames, bool)
+            or not isinstance(self.min_evidence_frames, int)
+            or self.min_evidence_frames < 1
+        ):
             raise ValueError("min_evidence_frames must be at least 1")
-        if self.sample_interval_seconds <= 0:
+        if (
+            isinstance(self.sample_interval_seconds, bool)
+            or not isinstance(self.sample_interval_seconds, (int, float))
+            or self.sample_interval_seconds <= 0
+        ):
             raise ValueError("sample_interval_seconds must be positive")
-        if not 1 <= self.max_sample_frames <= 120:
+        if (
+            isinstance(self.max_sample_frames, bool)
+            or not isinstance(self.max_sample_frames, int)
+            or not 1 <= self.max_sample_frames <= 120
+        ):
             raise ValueError("max_sample_frames must be between 1 and 120")
 
     def to_dict(self) -> dict[str, Any]:
