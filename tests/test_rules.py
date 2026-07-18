@@ -14,7 +14,7 @@ def _enemy(frame: int, confidence: float) -> dict:
         "class_name": "enemy",
         "confidence": confidence,
         "bbox_xyxy": [1.0, 2.0, 3.0, 4.0],
-        "evidence_file": "evidence_000_f0.jpg",
+        "evidence_file": "frame_000000.jpg",
     }
 
 
@@ -93,7 +93,7 @@ def test_non_risk_classes_do_not_trigger_reject() -> None:
             "class_name": "player",
             "confidence": 0.99,
             "bbox_xyxy": [0.0, 0.0, 1.0, 1.0],
-            "evidence_file": "evidence_000_f0.jpg",
+            "evidence_file": "frame_000000.jpg",
         }
     ]
     assert decide_audit(detections, 1, settings) is AuditDecision.PASS
