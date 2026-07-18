@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -28,6 +29,9 @@ RELEASE_STAGING = PROJECT_ROOT / "tmp" / "release"
 
 # ---- helpers ----
 _HAS_FIXTURE_SUPPORT = FIXTURE_SUPPORT.is_file()
+
+# Zacian: earliest valid ZIP epoch is 1980-01-01
+_ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 
 
 def _load_hygiene() -> dict[str, str]:
@@ -182,28 +186,42 @@ MANIFEST_PATTERNS = [
     "compose.yaml",
     ".dockerignore",
     ".editorconfig",
+    "pytest.ini",
     "README.md",
     "AGENTS.md",
     "aegis_review/**/*.py",
     "aegis_review/cv/**/*.py",
     "static/**",
     "templates/**",
+    "prompts/**/*.md",
+    "scripts/*.py",
+    "tests/**/*.py",
     "models/aegis_game_best.pt",
     "docs/**/*.md",
+    "docs/assignments/*.md",
     "screenshots/*.png",
     "screenshots/*.jpg",
     "screenshots/*.jpeg",
-    "tests/fixtures/media/manifest.json",
-    "tests/fixtures/support.py",
-    "tests/test_acceptance.py",
-    "tests/test_security.py",
-    "tests/test_delivery.py",
-    "scripts/package_release.py",
+    "dataset/**",
+    "training_evidence/**",
 ]
 
-EXCLUDE_PREFIXES = (".git/", "__pycache__/", "node_modules/", "tmp/", "outputs/", ".pytest_cache/")
+EXCLUDE_PREFIXES = (
+    ".git/", "__pycache__/", "node_modules/", "tmp/", "outputs/", ".pytest_cache/",
+    "training_runs/", "runs/",
+)
 
 EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".tmp", ".log")
+
+# Extra patterns to match for exclusion (glob-style)
+EXCLUDE_PATTERNS = [
+    "**/last.pt",
+    "**/*.last",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "models/*.pt",
+    "!models/aegis_game_best.pt",
+]
 
 
 def _collect_files() -> list[Path]:
@@ -218,6 +236,8 @@ def _collect_files() -> list[Path]:
             if any(rel.endswith(s) for s in EXCLUDE_SUFFIXES):
                 continue
             if "models/" in rel and path.suffix == ".pt" and path.name != "aegis_game_best.pt":
+                continue
+            if "last.pt" in rel:
                 continue
             if rel not in (str(p.relative_to(PROJECT_ROOT)).replace("\\", "/") for p in collected):
                 collected.append(path)
@@ -243,17 +263,14 @@ def _build_archive(package_dir: Path) -> tuple[Path, str]:
     archive_path = package_dir / f"{_extract_surname()}_A_day08.zip"
     archive_path.parent.mkdir(parents=True, exist_ok=True)
 
-    epoch = datetime(2026, 7, 18, 0, 0, 0, tzinfo=timezone.utc)
-    file_epoch = (1979, 12, 31, 23, 0, 0)
-
     with zipfile.ZipFile(str(archive_path), "w", zipfile.ZIP_DEFLATED) as zf:
         for f in sorted(RELEASE_STAGING.rglob("*")):
             if f.is_dir():
                 continue
             arcname = str(f.relative_to(RELEASE_STAGING)).replace("\\", "/")
             info = zipfile.ZipInfo(arcname)
-            # Deterministic timestamps
-            info.date_time = file_epoch
+            info.date_time = _ZIP_EPOCH
+            info.compress_type = zipfile.ZIP_DEFLATED
             with open(f, "rb") as fh:
                 contents = fh.read()
             zf.writestr(info, contents)

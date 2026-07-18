@@ -196,3 +196,62 @@ def test_d7_release_script_rejects_when_gates_fail() -> None:
     # File manifest must be non‑empty
     manifest = _collect_files()
     assert len(manifest) >= 10, f"manifest too short: {len(manifest)}"
+
+
+# ---------------------------------------------------------------------------
+# D8  Deterministic ZIP regression  (build archive twice, SHA-256 must match)
+# ---------------------------------------------------------------------------
+def test_d8_deterministic_zip_build_is_stable(tmp_path: Path) -> None:
+    """_build_archive runs twice → identical SHA-256, valid ZIPs, no escapes."""
+    script = PROJECT_ROOT / "scripts" / "package_release.py"
+    if not script.is_file():
+        pytest.skip(SKIP_NO_SCRIPT)
+
+    import sys as _sys
+    _sys.path.insert(0, str(PROJECT_ROOT))
+    from scripts.package_release import _build_archive, RELEASE_STAGING
+
+    import shutil as _shutil
+
+    dest = tmp_path / "packages"
+    dest.mkdir(exist_ok=True)
+
+    # Clean staging between runs to get pure rebuilds
+    def _clean_staging() -> None:
+        if RELEASE_STAGING.exists():
+            _shutil.rmtree(RELEASE_STAGING)
+
+    # Run 1
+    _clean_staging()
+    archive1, sha1 = _build_archive(dest)
+    assert archive1.is_file()
+
+    # Run 2
+    _clean_staging()
+    archive2, sha2 = _build_archive(dest)
+    assert archive2.is_file()
+
+    # Both archives valid
+    import zipfile as _zf
+    with _zf.ZipFile(str(archive1)) as zf1:
+        assert zf1.testzip() is None, f"archive1 corrupt: {zf1.testzip()}"
+        names1 = sorted(zf1.namelist())
+    with _zf.ZipFile(str(archive2)) as zf2:
+        assert zf2.testzip() is None, f"archive2 corrupt: {zf2.testzip()}"
+        names2 = sorted(zf2.namelist())
+
+    # SHA-256 must be identical
+    assert sha1 == sha2, f"SHA-256 mismatch: {sha1[:16]} vs {sha2[:16]}"
+
+    # File lists must match
+    assert names1 == names2, f"name list mismatch: {len(names1)} vs {len(names2)}"
+
+    # No absolute paths, .., caches, outputs, or last.pt
+    for name in names1:
+        assert ".." not in name, f"path traversal in ZIP: {name}"
+        assert not name.startswith("/"), f"absolute path in ZIP: {name}"
+        assert "__pycache__" not in name, f"cache in ZIP: {name}"
+        assert not name.startswith("outputs/"), f"outputs/ in ZIP: {name}"
+        assert "last.pt" not in name, f"last.pt in ZIP: {name}"
+        assert ".git/" not in name, f".git/ in ZIP: {name}"
+        assert ".pytest_cache" not in name, f"pytest cache in ZIP: {name}"
