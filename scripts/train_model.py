@@ -7,8 +7,13 @@ import argparse
 import hashlib
 import json
 import shutil
+import sys
 import time
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from aegis_review.config import PROJECT_ROOT
 from aegis_review.cv.classes import CLASS_NAMES

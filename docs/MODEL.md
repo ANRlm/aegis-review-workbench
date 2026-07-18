@@ -93,7 +93,7 @@ runner = partial(analyze_asset, detector=detector)
 3. 低置信度风险帧比例严格位于 `(0.20, 0.80)` → `review`
 4. 其余 → `pass`
 
-视频按 `sample_interval_seconds` 时间采样，最多 `max_sample_frames`（默认 120）。无检测时仍保存第一帧代表证据。
+视频按 `sample_interval_seconds` 时间采样，最多 `max_sample_frames`（默认 120）。无检测时仍保存第一帧代表证据。存在检测时优先保留风险相关帧，并补足到 `min(min_evidence_frames, 采样帧数)`。证据文件名固定为 `frame_{frame_index:06d}.jpg`（例如 `frame_000000.jpg`）。
 
 ## 限制
 

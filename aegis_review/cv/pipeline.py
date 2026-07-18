@@ -120,17 +120,26 @@ def _select_evidence_frames(
     if not detections:
         return [frames[0].frame_index]
 
+    target = min(settings.min_evidence_frames, len(frames))
     ordered = sorted(detections, key=lambda item: _rank_key(item, settings))
     selected: list[int] = []
     for detection in ordered:
         frame_index = int(detection["frame_index"])
         if frame_index not in selected:
             selected.append(frame_index)
-        if len(selected) >= settings.min_evidence_frames:
+        if len(selected) >= target:
+            return selected
+
+    for sampled in frames:
+        if sampled.frame_index not in selected:
+            selected.append(sampled.frame_index)
+        if len(selected) >= target:
             break
-    if not selected:
-        selected = [frames[0].frame_index]
     return selected
+
+
+def _evidence_filename(frame_index: int) -> str:
+    return f"frame_{int(frame_index):06d}.jpg"
 
 
 def _write_detections_csv(path: Path, detections: list[dict[str, Any]]) -> None:
@@ -228,9 +237,9 @@ def analyze_asset(
     evidence_names: list[str] = []
     evidence_for_frame: dict[int, str] = {}
 
-    for order, frame_index in enumerate(evidence_indices):
+    for frame_index in evidence_indices:
         sampled = frame_lookup[frame_index]
-        filename = f"evidence_{order:03d}_f{frame_index}.jpg"
+        filename = _evidence_filename(frame_index)
         annotated = _draw_detections(
             sampled.image,
             per_frame.get(frame_index, []),
