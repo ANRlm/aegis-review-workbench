@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import aegis_review.storage as storage_module
 from aegis_review.domain import (
     AssetInput,
     AuditSettings,
@@ -91,6 +92,36 @@ def test_atomic_replace_failure_preserves_previous_json(
 
     assert read_json(destination) == original
     assert list(tmp_path.glob(".job.json.*.tmp")) == []
+
+
+def test_atomic_write_skips_directory_fsync_when_platform_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows keeps atomic file replacement without opening a directory FD."""
+    capability = getattr(
+        storage_module,
+        "_directory_fsync_supported",
+        None,
+    )
+    assert callable(capability), "directory fsync capability probe is missing"
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            storage_module,
+            "_directory_fsync_supported",
+            lambda: False,
+        )
+
+        def fail_open(*_args, **_kwargs):
+            raise AssertionError("directory os.open must not run")
+
+        scoped.setattr(storage_module.os, "open", fail_open)
+        storage_module._fsync_directory(tmp_path)
+
+    destination = tmp_path / "job.json"
+    atomic_write_json(destination, {"status": "created"})
+    assert read_json(destination) == {"status": "created"}
 
 
 def test_new_job_id_skips_an_existing_candidate(

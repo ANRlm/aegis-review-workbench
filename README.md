@@ -100,6 +100,9 @@ docker compose run --rm app node --check static/app.js
 - Compose 只把 `outputs` 挂载为可写目录，把 `models` 挂载为只读目录。
 - Flask 必须保持单进程，`app.py` 即使启用 `--debug` 也禁用 reloader，避免创建两个线程池。
 - 服务重启时，磁盘中遗留的 `queued/running` 会标记为 `failed` 并保留输入文件，可重新分析。
+- Windows 宿主机仍使用文件级 `flush + fsync + os.replace` 原子写入；由于
+  Windows 不支持打开目录文件描述符，只跳过父目录 fsync。Docker/Linux 与
+  macOS 继续执行父目录 fsync。
 - Ultralytics 配置写入 `/tmp/ultralytics`，不污染仓库或宿主机用户目录。
 
 ## 协作入口

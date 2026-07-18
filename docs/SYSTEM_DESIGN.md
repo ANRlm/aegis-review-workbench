@@ -65,8 +65,10 @@ app.extensions["aegis_job_service"]
 
 - 线程池固定一个 worker，避免 CPU 上同时加载多次 YOLO。
 - 每个任务一个内存锁，修改前重新读取磁盘状态。
-- JSON 先写同目录 `.tmp`，`flush + fsync` 后原子替换。
-- 实际临时文件使用不可预测的同目录随机名称，替换失败时保留旧 JSON 并清理临时文件。
+- JSON 先写不可预测的同目录随机临时文件，执行文件级 `flush + fsync`
+  后使用 `os.replace` 原子替换；替换失败时保留旧 JSON 并清理临时文件。
+- Unix/macOS 在替换后额外 fsync 父目录；Windows 不支持目录文件描述符，
+  因此跳过目录 fsync，但仍保留文件级 fsync 与原子替换。
 - 列表接口从磁盘读取，因此刷新或重启后仍可打开历史任务。
 - 启动时扫描 `queued/running`，将其标记为 `failed`，错误为“服务中断，任务未完成”；失败任务允许重新进入 `queued`。
 - 正在 `queued/running` 的任务不能删除。

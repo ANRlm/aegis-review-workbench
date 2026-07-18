@@ -61,7 +61,14 @@ class JobPaths:
     job_file: Path
 
 
+def _directory_fsync_supported() -> bool:
+    """Return whether this platform supports opening directories as file descriptors."""
+    return os.name != "nt"
+
+
 def _fsync_directory(directory: Path) -> None:
+    if not _directory_fsync_supported():
+        return
     descriptor = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(descriptor)
