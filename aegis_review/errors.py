@@ -15,7 +15,8 @@ def error_response(code: str, message: str, status: int):
 
 def register_api_error_handlers(api_blueprint):
     """Register exception-to-JSON-error mappings on the API blueprint."""
-    from werkzeug.exceptions import BadRequest, HTTPException, RequestEntityTooLarge
+    from werkzeug.exceptions import HTTPException
+    from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed, NotFound, RequestEntityTooLarge
     from .service import (
         ArtifactNotFoundError, InvalidStatusTransition,
         JobBusyError, JobExecutionError, JobServiceError,
@@ -23,18 +24,30 @@ def register_api_error_handlers(api_blueprint):
     from .storage import AssetTooLargeError, InvalidJobIdError, JobNotFoundError
     from .validation import MediaTooLargeError, ValidationError
 
-    # -- Werkzeug HTTP exceptions (must come before broad Exception handler) --
+    # -- Specific HTTPException handlers (blueprint-level) --
+
+    @api_blueprint.errorhandler(BadRequest)
+    def handle_bad_request(error):
+        return error_response("invalid_request", "\u8bf7\u6c42\u53c2\u6570\u9519\u8bef\u3002", 400)
+
+    @api_blueprint.errorhandler(NotFound)
+    def handle_not_found(error):
+        return error_response("not_found", "\u8bf7\u6c42\u7684\u63a5\u53e3\u4e0d\u5b58\u5728\u3002", 404)
+
+    @api_blueprint.errorhandler(MethodNotAllowed)
+    def handle_method_not_allowed(error):
+        return error_response("invalid_request", "\u8bf7\u6c42\u65b9\u6cd5\u4e0d\u5141\u8bb8\u3002", 405)
+
+    @api_blueprint.errorhandler(RequestEntityTooLarge)
+    def handle_entity_too_large(error):
+        return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
 
     @api_blueprint.errorhandler(HTTPException)
-    def handle_http_exception(error):
+    def handle_other_http_exception(error):
         code = error.code if hasattr(error, "code") else 500
-        mapping = {
-            400: ("invalid_request", "\u8bf7\u6c42\u53c2\u6570\u9519\u8bef\u3002"),
-            413: ("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002"),
-        }
-        if code in mapping:
-            return error_response(*mapping[code], code)
-        raise error  # let app-level handlers (404, etc.) or Flask default decide
+        if 400 <= code < 500:
+            return error_response("invalid_request", "\u8bf7\u6c42\u9519\u8bef\u3002", code)
+        return error_response("internal_error", "\u670d\u52a1\u5668\u5185\u90e8\u9519\u8bef\u3002", 500)
 
     # -- Service exceptions --
 
@@ -96,7 +109,7 @@ def register_api_error_handlers(api_blueprint):
         current_app.logger.exception("Unhandled exception: %s", error)
         return error_response("internal_error", "\u670d\u52a1\u5668\u5185\u90e8\u9519\u8bef\u3002", 500)
 
-    # -- Generic blueprint 404 --
+    # -- Generic blueprint 404 (fallback for unmatched API routes) --
 
     @api_blueprint.errorhandler(404)
     def handle_api_not_found(error):
