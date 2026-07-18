@@ -471,6 +471,25 @@ def _extract_function(js: str, func_name: str) -> str:
     return js[start:i + 1]
 
 
+def _extract_media_block(css: str, media_feature: str) -> str:
+    """Extract a CSS @media block by feature string."""
+    start = css.find(media_feature)
+    if start == -1:
+        return ""
+    brace_start = css.find("{", start)
+    if brace_start == -1:
+        return ""
+    depth = 0
+    for i in range(brace_start, len(css)):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return css[start:i + 1]
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Static file existence and structure
 # ---------------------------------------------------------------------------
@@ -505,4 +524,180 @@ def test_app_js_is_syntactically_parseable() -> None:
     assert open_parens == close_parens, (
         f"Unbalanced parentheses in app.js: {open_parens} open, "
         f"{close_parens} close"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Numeric parsing boundary tests
+# ---------------------------------------------------------------------------
+
+
+def test_js_parse_integer_preserves_zero(app_js: str) -> None:
+    """parseInteger must use isFinite and not return val || default."""
+    parse_func = _extract_function(app_js, "function parseInteger")
+    assert "isFinite" in parse_func, (
+        "parseInteger must use isFinite, not || default"
+    )
+    assert "return" in parse_func, (
+        "parseInteger must have a return statement"
+    )
+    assert "return defaultValue" in parse_func, (
+        "parseInteger must return defaultValue for invalid input"
+    )
+
+
+def test_js_parse_numeric_preserves_zero_boundary(app_js: str) -> None:
+    """parseNumeric must handle 0, empty string, and invalid strings."""
+    parse_func = _extract_function(app_js, "function parseNumeric")
+    assert "Number(" in parse_func, "parseNumeric must use Number()"
+    assert "isFinite" in parse_func, "parseNumeric must use isFinite"
+    assert "return num" in parse_func or "return num;" in parse_func or "return num\n" in parse_func or "return num\r" in parse_func, (
+        "parseNumeric must return the parsed number, not value || default"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Polling contract tests
+# ---------------------------------------------------------------------------
+
+
+def test_js_poll_uses_recursive_settimeout_not_setinterval(app_js: str) -> None:
+    """Polling must use recursive setTimeout, not setInterval."""
+    assert "setInterval" not in app_js, (
+        "Polling must use recursive setTimeout, not setInterval"
+    )
+
+
+def test_js_poll_uses_abort_controller(app_js: str) -> None:
+    """Polling must use AbortController to cancel in-flight requests."""
+    assert "AbortController" in app_js, (
+        "Polling must use AbortController for cancellation"
+    )
+
+
+def test_js_poll_calls_cancel_polling_on_select(app_js: str) -> None:
+    """selectJob must call cancelPolling first."""
+    select_func = _extract_function(app_js, "function selectJob")
+    assert "cancelPolling()" in select_func, (
+        "selectJob must call cancelPolling before loading a new job"
+    )
+
+
+def test_js_poll_catches_abort_error(app_js: str) -> None:
+    """pollJob catch handler must suppress AbortError."""
+    poll_func = _extract_function(app_js, "function pollJob")
+    assert "AbortError" in poll_func, (
+        "pollJob must catch and suppress AbortError"
+    )
+
+
+def test_js_poll_clears_state_poll_abort_in_finally(app_js: str) -> None:
+    """state.pollAbort must be cleared in .finally(), not before fetch."""
+    poll_func = _extract_function(app_js, "function pollJob")
+    assert ".finally" in poll_func, (
+        "pollJob must use .finally() to clear state.pollAbort"
+    )
+    assert "state.pollAbort = null" in poll_func or "state.pollAbort=null" in poll_func, (
+        "pollJob must clear state.pollAbort"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layout constraint tests
+# ---------------------------------------------------------------------------
+
+
+def test_css_workspace_padding_is_compact(styles_css: str) -> None:
+    """Workspace top padding must be <= 16px for above-the-fold layout."""
+    import re
+    ws_match = re.search(r'\.workspace\s*\{[^}]*padding:\s*(\d+)px', styles_css)
+    assert ws_match is not None, "Could not find .workspace padding"
+    top_padding = int(ws_match.group(1))
+    assert top_padding <= 16, (
+        f"Workspace top padding ({top_padding}px) must be <= 16px "
+        f"to keep main-grid visible above the fold"
+    )
+
+
+def test_css_topbar_margin_is_compact(styles_css: str) -> None:
+    """Topbar margin-bottom must be <= 12px."""
+    import re
+    tb_match = re.search(r'\.topbar\s*\{[^}]*margin-bottom:\s*(\d+)px', styles_css)
+    assert tb_match is not None, "Could not find .topbar margin-bottom"
+    margin = int(tb_match.group(1))
+    assert margin <= 12, (
+        f"Topbar margin-bottom ({margin}px) must be <= 12px"
+    )
+
+
+def test_css_drop_zone_padding_is_compact(styles_css: str) -> None:
+    """Drop zone vertical padding must be <= 16px for compact layout."""
+    import re
+    dz_match = re.search(r'\.drop-zone\s*\{[^}]*padding:\s*(\d+)px', styles_css)
+    assert dz_match is not None, "Could not find .drop-zone padding"
+    dz_padding = int(dz_match.group(1))
+    assert dz_padding <= 16, (
+        f"Drop zone padding ({dz_padding}px) must be <= 16px"
+    )
+
+
+def test_css_evidence_panel_no_oversized_min_height(styles_css: str) -> None:
+    """Evidence panel min-height must be <= 300px."""
+    import re
+    ep_match = re.search(r'\.evidence-panel\s*\{[^}]*min-height:\s*(\d+)px', styles_css)
+    assert ep_match is not None, "Could not find .evidence-panel min-height"
+    min_h = int(ep_match.group(1))
+    assert min_h <= 300, (
+        f"Evidence panel min-height ({min_h}px) must be <= 300px"
+    )
+
+
+def test_css_task_list_max_height_is_bounded(styles_css: str) -> None:
+    """Task list max-height must be <= 280px to avoid pushing content down."""
+    import re
+    tl_match = re.search(r'\.task-list\s*\{[^}]*max-height:\s*(\d+)px', styles_css)
+    assert tl_match is not None, "Could not find .task-list max-height"
+    max_h = int(tl_match.group(1))
+    assert max_h <= 280, (
+        f"Task list max-height ({max_h}px) must be <= 280px"
+    )
+
+
+def test_css_single_column_on_narrow_viewport(styles_css: str) -> None:
+    """At <= 860px, main-grid must collapse to single column."""
+    narrow_section = _extract_media_block(styles_css, "max-width: 860px")
+    assert "grid-template-columns: 1fr" in narrow_section, (
+        "Narrow viewport must use single-column grid"
+    )
+
+
+def test_css_no_horizontal_scroll_on_mobile_lte_500(styles_css: str) -> None:
+    """At <= 500px, workspace must not exceed viewport width."""
+    narrow_section = _extract_media_block(styles_css, "max-width: 500px")
+    assert "min(100% - 16px, 100%)" in narrow_section or "calc" in narrow_section, (
+        "Mobile layout must constrain width to avoid horizontal scroll"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Model readiness tests
+# ---------------------------------------------------------------------------
+
+
+def test_js_disables_analyze_button_when_model_not_ready(app_js: str) -> None:
+    """Analyze/retry button must be disabled when model_ready is false."""
+    retry_func = _extract_function(app_js, "function handleRetry")
+    assert "model_ready" in retry_func, (
+        "handleRetry must check model_ready"
+    )
+
+
+def test_js_upload_only_creates_when_model_not_ready(app_js: str) -> None:
+    """Upload must skip analyze call when model_ready is false."""
+    upload_func = _extract_function(app_js, "function handleUpload")
+    assert "modelReady" in upload_func or "model_ready" in upload_func, (
+        "handleUpload must check model readiness before calling analyze"
+    )
+    assert 'analyzeJob' in upload_func, (
+        "handleUpload must conditionally call analyzeJob"
     )
