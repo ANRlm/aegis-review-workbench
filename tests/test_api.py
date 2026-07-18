@@ -9,6 +9,7 @@ from PIL import Image
 from aegis_review import create_app as _create_app
 from aegis_review.config import AppConfig
 from aegis_review.domain import AuditSettings
+from aegis_review.storage import JobNotFoundError
 from aegis_review.service import (
     ArtifactNotFoundError, InvalidStatusTransition,
     JobBusyError, JobService, JobServiceError,
@@ -157,7 +158,7 @@ class TestGetJob:
         assert resp.get_json()["ok"] is True
     def test_not_found_returns_404(self, tmp_path: Path) -> None:
         app, service = _mock_app(tmp_path)
-        e = JobServiceError("\u4efb\u52a1\u4e0d\u5b58\u5728\u3002")
+        e = JobNotFoundError("\u4efb\u52a1\u4e0d\u5b58\u5728\u3002")
         service.get_job.side_effect = e
         resp = app.test_client().get("/api/jobs/notexist")
         assert resp.status_code == 404
@@ -178,7 +179,7 @@ class TestDeleteJob:
         assert resp.status_code == 409
     def test_not_found_returns_404(self, tmp_path: Path) -> None:
         app, service = _mock_app(tmp_path)
-        service.delete_job.side_effect = JobServiceError("\u4efb\u52a1\u4e0d\u5b58\u5728\u3002")
+        service.delete_job.side_effect = JobNotFoundError("\u4efb\u52a1\u4e0d\u5b58\u5728\u3002")
         resp = app.test_client().delete("/api/jobs/notexist")
         assert resp.status_code == 404
 class TestReviewJob:
