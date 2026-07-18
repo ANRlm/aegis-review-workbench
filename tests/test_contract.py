@@ -112,6 +112,7 @@ def test_analysis_report_serializes_stable_contract() -> None:
     [
         (JobStatus.CREATED, JobStatus.QUEUED),
         (JobStatus.QUEUED, JobStatus.RUNNING),
+        (JobStatus.QUEUED, JobStatus.FAILED),
         (JobStatus.RUNNING, JobStatus.COMPLETED),
         (JobStatus.RUNNING, JobStatus.FAILED),
         (JobStatus.FAILED, JobStatus.QUEUED),
