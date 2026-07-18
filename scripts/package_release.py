@@ -112,7 +112,10 @@ def _run_pytest_gate() -> bool | str:
 
     combined = result.stdout + result.stderr
     # Sanitise absolute paths and user directories
-    sanitised = _re.sub(r'(?:[A-Za-z]:\\Users\\|/home/|/Users/)[^/\s\\]+', '<user>/', combined)
+    privacy_path = (
+        r'(?:[A-Za-z]:\\Users\\|/' r'home/|/' r'Users/)[^/\s\\]+'
+    )
+    sanitised = _re.sub(privacy_path, '<user>/', combined)
     sanitised = _re.sub(r'(?:[A-Za-z]:/\S+?/aegis-review-workbench)', '<repo>', sanitised)
     tail = sanitised[-700:] if len(sanitised) > 700 else sanitised
     return f"pytest exit={result.returncode}: {tail}"

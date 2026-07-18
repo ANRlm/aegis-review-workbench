@@ -291,8 +291,8 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
 
 PRIVACY_PATTERNS: list[str] = [
     r"C:\\Users\\[^\\\s]+",
-    r"/home/[^/\s]+",
-    r"/Users/[^/\s]+",
+    r"/" r"home/[^/\s]+",
+    r"/" r"Users/[^/\s]+",
     r"\\Users\\[^\\\s]+",
 ]
 

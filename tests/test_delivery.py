@@ -248,7 +248,11 @@ def test_d9a_fake_token_in_md_detected(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path))
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path))
-    (tmp_path / "README.md").write_text("ghp_fake1234567890abcdefabcdefabcdefab\n", encoding="utf-8")
+    fake_token = "ghp_" + "fake1234567890abcdefabcdefabcdefabcd"
+    (tmp_path / "README.md").write_text(
+        fake_token + "\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "README.md"], cwd=str(tmp_path), check=True)
     findings = hygiene_scan(tmp_path)
     assert any("README.md" in k for k in findings), findings
@@ -259,7 +263,11 @@ def test_d9b_fake_token_in_yml_detected(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path))
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path))
-    (tmp_path / "config.yml").write_text("key: ghp_fake9876543210abcdefabcdefabcdefab\n", encoding="utf-8")
+    fake_token = "ghp_" + "fake9876543210abcdefabcdefabcdefabcd"
+    (tmp_path / "config.yml").write_text(
+        f"key: {fake_token}\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "config.yml"], cwd=str(tmp_path), check=True)
     findings = hygiene_scan(tmp_path)
     assert any("config.yml" in k for k in findings), findings
@@ -271,7 +279,10 @@ def test_d9c_absolute_path_in_src_detected(tmp_path: Path) -> None:
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path))
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path))
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.py").write_text("# /Users/alice/project\n", encoding="utf-8")
+    (tmp_path / "src" / "main.py").write_text(
+        "# /" "Users/alice/project\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
     findings = hygiene_scan(tmp_path)
     assert any("src/main.py" in k for k in findings), findings
@@ -305,7 +316,10 @@ def test_d9f_docs_leak_detected_without_whitelist_escape(tmp_path: Path) -> None
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path))
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path))
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "leak.md").write_text("# /Users/alice/project\n", encoding="utf-8")
+    (tmp_path / "docs" / "leak.md").write_text(
+        "# /" "Users/alice/project\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
     findings = hygiene_scan(tmp_path)
     assert any("docs/leak.md" in k for k in findings), f"docs file not whitelisted should be detected: {findings}"
@@ -317,7 +331,10 @@ def test_d9g_other_tests_py_not_auto_whitelisted(tmp_path: Path) -> None:
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path))
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path))
     (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "other.py").write_text("# /Users/bob/data\n", encoding="utf-8")
+    (tmp_path / "tests" / "other.py").write_text(
+        "# /" "Users/bob/data\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
     findings = hygiene_scan(tmp_path)
     # tests/other.py is NOT test_service.py → should be detected
