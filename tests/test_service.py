@@ -19,13 +19,14 @@ from aegis_review.domain import (
     MediaType,
 )
 from aegis_review.service import (
+    AnalysisContractError,
     ArtifactNotFoundError,
     InvalidStatusTransition,
     JobBusyError,
     JobExecutionError,
     JobService,
 )
-from aegis_review.storage import JobStorage
+from aegis_review.storage import JobStorage, atomic_write_json
 
 
 NOW = datetime.fromisoformat("2026-07-18T10:15:30+08:00")
@@ -527,6 +528,22 @@ def test_get_report_rejects_symlink_file(tmp_path: Path) -> None:
     report_file.symlink_to(outside)
 
     with pytest.raises(ArtifactNotFoundError):
+        service.get_report(job["job_id"])
+
+
+def test_get_report_wraps_malformed_report_payload(tmp_path: Path) -> None:
+    service, storage, executor = create_service(tmp_path)
+    job = service.create_job(make_asset(), "项目", AuditSettings())
+    service.enqueue_analysis(job["job_id"])
+    executor.run_next()
+    report_path = (
+        storage.paths(job["job_id"]).result_dir / "analysis_report.json"
+    )
+    malformed = service.get_report(job["job_id"])
+    malformed["downloads"] = None
+    atomic_write_json(report_path, malformed)
+
+    with pytest.raises(AnalysisContractError, match="分析报告无法读取"):
         service.get_report(job["job_id"])
 
 

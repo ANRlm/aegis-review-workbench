@@ -406,7 +406,7 @@ class JobService:
         )
         try:
             return AnalysisReport.from_dict(read_json(report_path))
-        except (OSError, ValueError) as error:
+        except (OSError, TypeError, ValueError) as error:
             raise AnalysisContractError("分析报告无法读取。") from error
 
     @staticmethod

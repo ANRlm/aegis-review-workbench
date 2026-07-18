@@ -140,6 +140,14 @@ def test_audit_settings_round_trip_from_json_types() -> None:
     assert settings == AuditSettings()
 
 
+def test_audit_settings_rejects_non_collection_risk_classes() -> None:
+    payload = AuditSettings().to_dict()
+    payload["risk_classes"] = None
+
+    with pytest.raises(ValueError, match="risk_classes"):
+        AuditSettings.from_dict(payload)
+
+
 def test_analysis_report_round_trips_decisions_and_downloads() -> None:
     payload = {
         "job_id": "20260718_101530_a1b2c3d4",

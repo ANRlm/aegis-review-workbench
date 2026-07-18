@@ -94,9 +94,14 @@ class AuditSettings:
     max_sample_frames: int = 120
 
     def __post_init__(self) -> None:
+        if not isinstance(self.risk_classes, (list, tuple)):
+            raise ValueError("risk_classes must be a list or tuple")
         risk_classes = tuple(self.risk_classes)
         object.__setattr__(self, "risk_classes", risk_classes)
-        if not risk_classes or any(not value.strip() for value in risk_classes):
+        if not risk_classes or any(
+            not isinstance(value, str) or not value.strip()
+            for value in risk_classes
+        ):
             raise ValueError("risk_classes must contain at least one class")
         if not (
             0.0
@@ -284,6 +289,34 @@ class AnalysisReport:
         }
         if set(payload) != expected:
             raise ValueError("analysis report fields do not match the contract")
+        if not isinstance(payload["job_id"], str):
+            raise ValueError("analysis report job_id must be a string")
+        if not isinstance(payload["detections"], list) or any(
+            not isinstance(detection, dict)
+            for detection in payload["detections"]
+        ):
+            raise ValueError("analysis report detections must be a list of objects")
+        if not isinstance(payload["evidence_frames"], list) or any(
+            not isinstance(filename, str)
+            for filename in payload["evidence_frames"]
+        ):
+            raise ValueError(
+                "analysis report evidence_frames must be a list of strings"
+            )
+        if not isinstance(payload["rules"], dict):
+            raise ValueError("analysis report rules must be an object")
+        if (
+            payload["reviewer"] is not None
+            and not isinstance(payload["reviewer"], str)
+        ):
+            raise ValueError("analysis report reviewer must be a string or null")
+        if payload["note"] is not None and not isinstance(payload["note"], str):
+            raise ValueError("analysis report note must be a string or null")
+        if not isinstance(payload["downloads"], dict) or any(
+            not isinstance(label, str) or not isinstance(filename, str)
+            for label, filename in payload["downloads"].items()
+        ):
+            raise ValueError("analysis report downloads must map strings to strings")
         auto_decision = payload["auto_decision"]
         final_decision = payload["final_decision"]
         return cls(
