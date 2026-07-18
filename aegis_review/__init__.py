@@ -11,6 +11,14 @@ from .service import JobService, UnavailableAnalyzer
 from .storage import JobStorage
 
 
+def _default_analyzer(app_config: AppConfig):
+    if not app_config.model_path.is_file():
+        return UnavailableAnalyzer()
+    from .cv import bind_analyzer
+
+    return bind_analyzer(model_path=app_config.model_path)
+
+
 def create_app(
     config: AppConfig | None = None,
     *,
@@ -27,7 +35,7 @@ def create_app(
                 app_config.outputs_dir,
                 app_config.max_content_length,
             ),
-            analyzer=UnavailableAnalyzer(),
+            analyzer=_default_analyzer(app_config),
         )
     )
 
