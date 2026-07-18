@@ -238,3 +238,25 @@ class TestTempCleanup:
             decode_video_stream(BytesIO(b"x" * 3000), max_bytes=100)
         for name in captured:
             assert not Path(name).exists()
+
+class TestTempCleanup:
+    def test_decode_failure_cleans_temp(self, monkeypatch) -> None:
+        import tempfile, cv2
+        captured = []
+        real = tempfile.NamedTemporaryFile
+        def track(*a, **kw):
+            obj = real(*a, **kw)
+            captured.append(obj.name)
+            return obj
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", track)
+        class FakeCap:
+            def read(self):
+                return (False, None)
+            def release(self):
+                pass
+        monkeypatch.setattr(cv2, "VideoCapture", lambda p: FakeCap())
+        result = decode_video_stream(BytesIO(b"test"), max_bytes=999999)
+        assert result is False
+        assert captured
+        for name in captured:
+            assert not Path(name).exists()

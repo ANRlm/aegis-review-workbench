@@ -401,3 +401,25 @@ class TestHttpException:
         assert resp.status_code == 500
         payload = resp.get_json()
         assert "secret" not in str(payload)
+
+    def test_wrong_method_returns_json(self, tmp_path: Path) -> None:
+        app = _real_app(tmp_path)
+        resp = app.test_client().post("/api/health")
+        assert resp.status_code == 405
+        assert resp.is_json
+        payload = resp.get_json()
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "invalid_request"
+    def test_method_not_allowed_returns_405(self, tmp_path: Path) -> None:
+        from werkzeug.exceptions import MethodNotAllowed
+        app, service = _mock_app(tmp_path)
+        service.get_job.side_effect = MethodNotAllowed("secret /Users/example/private")
+        resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
+        assert resp.status_code == 405
+        assert resp.is_json
+        payload = resp.get_json()
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "invalid_request"
+        assert "secret" not in str(payload)
+        assert "Users" not in str(payload)
+        assert "private" not in str(payload)

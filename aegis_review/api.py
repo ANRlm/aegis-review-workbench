@@ -193,3 +193,27 @@ def stats():
 
 
 register_api_error_handlers(api)
+@api.record
+def _register_app_http_handler(state):
+    from flask import request
+    from werkzeug.exceptions import HTTPException
+    @state.app.errorhandler(HTTPException)
+    def handle_routing_http_error(error):
+        if not request.path.startswith("/api/"):
+            return error
+        from .errors import error_response
+        code = int(error.code or 500)
+        mapping = {
+            400: ("invalid_request", "\u8bf7\u6c42\u53c2\u6570\u9519\u8bef\u3002"),
+            404: ("not_found", "\u8bf7\u6c42\u7684\u63a5\u53e3\u4e0d\u5b58\u5728\u3002"),
+            405: ("invalid_request", "\u8bf7\u6c42\u65b9\u6cd5\u4e0d\u5141\u8bb8\u3002"),
+            413: ("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002"),
+        }
+        if code in mapping:
+            return error_response(*mapping[code], code)
+        if 400 <= code < 500:
+            return error_response("invalid_request", "\u8bf7\u6c42\u9519\u8bef\u3002", code)
+        return error_response("internal_error", "\u670d\u52a1\u5668\u5185\u90e8\u9519\u8bef\u3002", 500)
+
+
+register_api_error_handlers(api)
