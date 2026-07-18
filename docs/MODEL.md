@@ -99,8 +99,20 @@ runner = partial(analyze_asset, detector=detector)
 
 - 数据为程序化游戏场景，泛化到真实照片/异风格素材有限。
 - 默认在 CPU 上训练与推理，长视频在 120 帧上限内仍可能较慢。
-- 健康检查只确认 `models/aegis_game_best.pt` 是否存在；真正分析还需服务层绑定 `analyze_asset`。
+- 健康检查确认最终权重存在；默认应用工厂会在权重存在时调用
+  `bind_analyzer()`，把真实 Detector 和 `analyze_asset` 绑定到单 worker
+  `JobService`。该运行时接线由 PR #8 修复并已用真实图片/视频任务复验。
 - 禁止在 Flask 启动时训练；`training_runs/`、`last.pt`、缓存与训练批次大图不进入 Git。
+
+## 最终烟雾验证
+
+Docker 正式服务健康响应中 `model_ready=true`。最终真实任务包括：
+
+- 图片 reject：`20260718_122853_c15ec8f0`，enemy 最高置信度 99.8%；
+- 视频 pass：`20260718_122855_9b72ccef`，3 张证据、63 条检测；
+- 人工改判：`20260718_122854_4fc3df62`，保留自动 reject 并最终改为 review。
+
+所有任务都生成 JSON、CSV、`evidence/frame_*.jpg` 与可通过 CRC 的 ZIP。
 
 ## 重训命令
 

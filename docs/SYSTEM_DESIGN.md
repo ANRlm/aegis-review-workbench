@@ -38,9 +38,9 @@ app.extensions["aegis_job_service"]
 ```
 
 后端路由只能消费该实例，不得在 `api.py` 中创建第二个线程池或复制状态机。
-组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线；CV 合入前使用
-`UnavailableAnalyzer`，使 Flask 可以启动而分析任务留下错误为
-“CV 分析组件尚未就绪。”的可重试失败记录。
+组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线。默认应用工厂
+在最终权重存在时调用 `bind_analyzer()` 接入真实管线；仅在权重缺失时使用
+`UnavailableAnalyzer`，使 Flask 仍可启动并留下可重试失败记录。
 
 ## 3. 数据流
 

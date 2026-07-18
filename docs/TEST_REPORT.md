@@ -1,67 +1,95 @@
-# 影鉴 Aegis Review 测试报告
+# 影鉴 Aegis Review 最终测试报告
 
-> 生成：2026-07-18（第四次更新）
-> 角色：测试与交付工程师 — 朱可心 (xin-rabbit)
-> 基线：feature/qa-delivery 普通 merge origin/main（含组长核心 PR #2）
-> 快照：9ad94cb (朱可心 10 commits)
+> 日期：2026-07-18
+> 初始 QA：朱可心（xin-rabbit）
+> 最终集成、真实验收与交付：李佳铭（ANRlm）
+> 基线：`leader/qa-integration`，五个功能 PR 已普通合并到 `main`
 
-## Docker 全量测试
+## 1. 新鲜自动回归
+
+### macOS / Conda
+
+```text
+conda run -n aegis-review pytest -q -rs
+→ 370 passed in 11.70s
+
+conda run -n aegis-review python -m py_compile app.py scripts/package_release.py
+→ exit 0
+
+node --check static/app.js
+→ exit 0
+
+git diff --check
+→ exit 0
+```
+
+宿主机为 **0 failed、0 skipped**，所有集成依赖跳过均已消除。
+
+### Docker 正式路径
 
 ```text
 docker compose build
-docker compose run --rm app pytest -q --tb=short
-→ 118 passed, 30 skipped, 0 failed in 1.64s
+→ success
 
-python -m py_compile app.py scripts/package_release.py → exit=0
-node --check static/app.js → exit=0
+docker compose run --rm app pytest -q -rs
+→ 361 passed, 9 skipped in 15.88s
+
+docker compose up -d
+curl --fail http://127.0.0.1:7880/api/health
+→ {"ffmpeg_ready":true,"model_ready":true,"ok":true,
+   "status":"ok","storage_ready":true}
 ```
 
-## 跳过审计 (30)
+Docker 的 9 个 skip 全部是容器镜像未安装 `git` 的仓库卫生临时 Git
+用例；这些相同用例已在有 Git 的宿主机真实运行并通过。不存在业务依赖 skip。
 
-| 原因 | 数量 | 合理 |
-|------|------|------|
-| 后端 API 未合并 | 22 | 是 |
-| 容器无 git (hygiene 宿主机已验证) | 7 | 是 |
-| outputs/ 无真实目录 | 1 | 是 |
+## 2. 真实模型任务
 
-全部 30 skip = 真实阻塞，无虚假 skip。
+以下任务均由 Docker 正式服务通过 HTTP 创建，使用
+`models/aegis_game_best.pt` 和生产 `cv.pipeline`，并通过严格 completed-job
+校验：
 
-## 组长核心 (验证通过)
+| 场景 | Job ID | 自动结论 | 最终结论 | 证据 |
+|---|---|---|---|---|
+| 图片 pass | `20260718_122823_c8db0377` | pass | pass | 1 帧 / 2 检测 |
+| 图片 review | `20260718_122853_5f664a01` | review | review | 真实 enemy 检测 |
+| 图片 reject | `20260718_122853_c15ec8f0` | reject | reject | enemy 99.8% |
+| 人工改判 | `20260718_122854_4fc3df62` | reject | review | 审核人李佳铭与备注 |
+| 视频 | `20260718_122855_9b72ccef` | pass | pass | 3 证据帧 / 63 检测 |
+| 浏览器上传视频 | `20260718_123440_32cabc08` | pass | pass | 页面真实上传与轮询 |
 
-| 测试组 | 内容 | 结果 |
-|--------|------|------|
-| test_storage.py | 原子 JSON、非法 ID、symbolic 防护 | ✅ |
-| test_service.py | 状态机、恢复、删除、重试、改判、白名单 | ✅ |
-| test_app_factory.py | 应用工厂注册 | ✅ |
-| test_domain.py | JobRecord、AuditSettings | ✅ |
-| test_contract.py | health、404 包络 | ✅ |
-| test_scaffold_files.py | 骨架完整性 | ✅ |
+视频报告包含真实采样时间戳，任务目录均包含：
 
-## QA 测试 (A / D 系列)
+```text
+job.json
+input/original.<ext>
+evidence/frame_*.jpg
+result/analysis_report.json
+result/detections.csv
+result/audit_package.zip
+```
 
-| ID | 测试 | 状态 |
-|----|------|------|
-| A4 | 阈值顺序 (domain) | ✅ |
-| A9 | 非法 job ID (storage/service) | ✅ |
-| A10 | ../ 路径防护 (storage) | ✅ |
-| **A11a** | **resolve_artifact 拒绝符号链接** | ✅ ArtifactNotFoundError 真实抛出 |
-| A11b | HTTP artifact route | 阻塞 |
-| **A12** | **重启恢复 (JobService 直接)** | ✅ queued+running → failed |
-| D7 | release 模块 (sys.executable 绑定) | ✅ |
-| **D8** | **确定性 ZIP 两目录 SHA-256 一致** | ✅ |
-| D9a‑e | hygiene 回归 (tmp git) | 容器 skip (宿主机有 git) |
-| D10a‑c | completed job 门禁校验 | ✅ |
-| D11a‑c | Bug/截图 gate 解析 | ✅ |
-| D12a | validation_outputs 选择逻辑 | ✅ |
+## 3. 导出与安全
 
-## 阻塞项
+- 实际下载 JSON：可被 `json.load` 解析。
+- 实际下载 CSV：64 行（含表头），字段满足报告契约。
+- 实际下载 ZIP：6 个成员，Deflate 压缩，`ZipFile.testzip() is None`。
+- 路径穿越、非法 job ID、产物符号链接、运行中删除、重复分析、损坏媒体、
+  空文件和超限上传均有自动测试。
+- `BlockingAnalyzer` 确定性验证运行中删除与重复分析返回 HTTP 409。
+- `poll()` 遇到 failed 立即失败，不再等待 30 秒。
 
-- 后端 API 未合并 — 无 job CRUD 路由
-- CV pipeline 未合并 — 无推理
-- 前端工作台未合并 — 无页面
-- 模型缺失 — model_ready=false
-- 2 个真实 Bug — 联调未开始
-- 截图 — 前端未合并
-- 李_A_day08.zip — 闸门未全过
+## 4. 页面与证据
 
-## 总结论：阻塞 (后端/CV/前端 未合并)
+- 15 张发布门禁截图均来自真实运行页面，另有 390×844 移动端截图。
+- 桌面主视口为 1366×768。
+- `analysis_in_progress.png` 来自视频任务真实 running 状态，不注入伪 DOM。
+- `error_unsupported.png` 来自真实 `.bmp` 上传，后端返回
+  “不支持的文件扩展名: .bmp”。
+- 截图与 Job ID 的逐项映射见 `docs/SCREENSHOT_INDEX.md`。
+
+## 5. 结论
+
+功能、接口、真实模型、三档审核、视频异步、人工改判、历史、统计、导出、
+安全和响应式页面均通过集成验收。发布包的最终门禁与确定性 SHA-256 记录在
+最终交付步骤完成后补入本报告。
