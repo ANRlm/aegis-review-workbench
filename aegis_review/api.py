@@ -13,9 +13,36 @@ from .validation import (
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
+# -- Serialization helpers --
+
+
+def _serialize_job(job: dict) -> dict:
+    """Make a safe HTTP copy of a job dict (no asset_file, add asset_url)."""
+    result = dict(job)
+    result.pop("asset_file", None)
+    asset_fn = job.get("asset_file")
+    if asset_fn:
+        result["asset_url"] = f"/api/jobs/{job['job_id']}/artifacts/{asset_fn}"
+    return result
+
+
+def _serialize_report(report: dict, job_id: str) -> dict:
+    """Make a safe HTTP copy of a report (downloads URLs)."""
+    result = dict(report)
+    downloads = result.get("downloads")
+    if isinstance(downloads, dict):
+        result["downloads"] = {
+            label: f"/api/jobs/{job_id}/artifacts/{filename}"
+            for label, filename in downloads.items()
+        }
+    return result
+
 
 def _service():
     return current_app.extensions["aegis_job_service"]
+
+
+# -- Routes --
 
 
 @api.get("/health")
@@ -31,9 +58,10 @@ def health():
 
 @api.post("/jobs")
 def create_job():
-    if "asset" not in request.files:
-        return error_response("invalid_asset", "\u8bf7\u4e0a\u4f20\u7d20\u6750\u6587\u4ef6\u3002", 400)
-    asset_file = request.files["asset"]
+    assets = request.files.getlist("asset")
+    if len(assets) != 1:
+        return error_response("invalid_asset", "\u8bf7\u4e0a\u4f20\u4e14\u53ea\u80fd\u4e0a\u4f20\u4e00\u4e2a\u7d20\u6750\u6587\u4ef6\u3002", 400)
+    asset_file = assets[0]
     original_name = asset_file.filename
     if not original_name or not original_name.strip():
         return error_response("invalid_asset", "\u7d20\u6750\u6587\u4ef6\u540d\u4e3a\u7a7a\u3002", 400)
@@ -61,11 +89,12 @@ def create_job():
     if size == 0:
         return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u4e3a\u7a7a\u3002", 400)
     stream.seek(0)
+    config: AppConfig = current_app.config["AEGIS_CONFIG"]
     if media_type is MediaType.IMAGE:
         if not decode_image_stream(stream):
             return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
     elif media_type is MediaType.VIDEO:
-        if not decode_video_stream(stream):
+        if not decode_video_stream(stream, config.max_content_length):
             return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
     settings_raw = request.form.get("settings")
     try:
@@ -81,10 +110,7 @@ def create_job():
         )
     except (ValueError, TypeError) as exc:
         return error_response("invalid_asset", str(exc), 400)
-    try:
-        job = _service().create_job(asset_input, valid_name, settings)
-    except Exception:
-        raise
+    job = _service().create_job(asset_input, valid_name, settings)
     return jsonify({"ok": True, "job": {"job_id": job["job_id"], "status": job["status"]}}), 201
 
 
@@ -104,13 +130,13 @@ def list_jobs():
         except ValueError:
             return error_response("invalid_request", "\u65e0\u6548\u7684 status \u53c2\u6570\u3002", 400)
     jobs = _service().list_jobs(status=status)
-    return jsonify({"ok": True, "jobs": jobs, "total": len(jobs)})
+    return jsonify({"ok": True, "jobs": [_serialize_job(j) for j in jobs], "total": len(jobs)})
 
 
 @api.get("/jobs/<job_id>")
 def get_job(job_id: str):
     job = _service().get_job(job_id)
-    return jsonify({"ok": True, "job": job})
+    return jsonify({"ok": True, "job": _serialize_job(job)})
 
 
 @api.delete("/jobs/<job_id>")
@@ -122,8 +148,8 @@ def delete_job(job_id: str):
 @api.patch("/jobs/<job_id>/review")
 def review_job(job_id: str):
     body = request.get_json(silent=True)
-    if not body:
-        return error_response("invalid_request", "\u8bf7\u63d0\u4f9b JSON \u8bf7\u6c42\u4f53\u3002", 400)
+    if not isinstance(body, dict):
+        return error_response("invalid_request", "\u8bf7\u63d0\u4f9b JSON \u5bf9\u8c61\u8bf7\u6c42\u4f53\u3002", 400)
     decision = body.get("decision")
     reviewer = body.get("reviewer")
     note = body.get("note")
@@ -134,19 +160,23 @@ def review_job(job_id: str):
     if note is not None and (not isinstance(note, str) or len(note) > 500):
         return error_response("invalid_request", "note \u4e0d\u80fd\u8d85\u8fc7 500 \u5b57\u3002", 400)
     report = _service().review_job(job_id, decision, reviewer.strip(), note)
-    return jsonify({"ok": True, "report": report})
+    return jsonify({"ok": True, "report": _serialize_report(report, job_id)})
 
 
 @api.get("/jobs/<job_id>/report")
 def get_report(job_id: str):
     report = _service().get_report(job_id)
-    return jsonify({"ok": True, "report": report})
+    return jsonify({"ok": True, "report": _serialize_report(report, job_id)})
+
+
+_INLINE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "gif", "mp4", "mov", "webm"})
 
 
 @api.get("/jobs/<job_id>/artifacts/<filename>")
 def get_artifact(job_id: str, filename: str):
     filepath = _service().resolve_artifact(job_id, filename)
-    return send_file(str(filepath), as_attachment=True, download_name=Path(filename).name)
+    is_inline = Path(filename).suffix.lstrip(".").lower() in _INLINE_EXTENSIONS
+    return send_file(str(filepath), as_attachment=not is_inline, download_name=Path(filename).name)
 
 
 @api.get("/stats")
