@@ -362,7 +362,10 @@ def _make_complete_job(tmp: Path, job_id: str, asset_type="image", shortcomings:
         zf.writestr("analysis_report.json", json.dumps(report))
         zf.writestr("detections.csv", (jd / "result" / "detections.csv").read_text())
         zf.writestr("job.json", (jd / "job.json").read_text())
-        zf.writestr("frame_001.jpg", (jd / "evidence" / "frame_001.jpg").read_bytes())
+        zf.writestr(
+            "evidence/frame_001.jpg",
+            (jd / "evidence" / "frame_001.jpg").read_bytes(),
+        )
     (jd / "result" / "audit_package.zip").write_bytes(buf.getvalue())
 
     if shortcomings:
@@ -394,6 +397,25 @@ def _make_complete_job(tmp: Path, job_id: str, asset_type="image", shortcomings:
                 with zipfile.ZipFile(buf2, "w") as zf:
                     zf.writestr("only_one.txt", "hi")
                 (jd / "result" / "audit_package.zip").write_bytes(buf2.getvalue())
+            elif s == "zip_root_evidence_only":
+                root_only = io.BytesIO()
+                with zipfile.ZipFile(root_only, "w") as zf:
+                    zf.writestr("analysis_report.json", json.dumps(report))
+                    zf.writestr(
+                        "detections.csv",
+                        (jd / "result" / "detections.csv").read_text(),
+                    )
+                    zf.writestr(
+                        "job.json",
+                        (jd / "job.json").read_text(),
+                    )
+                    zf.writestr(
+                        "frame_001.jpg",
+                        (jd / "evidence" / "frame_001.jpg").read_bytes(),
+                    )
+                (jd / "result" / "audit_package.zip").write_bytes(
+                    root_only.getvalue()
+                )
     return jd
 
 
@@ -477,6 +499,22 @@ def test_d10i_empty_evidence_frames_list_rejected() -> None:
         mod = _pr_module()
         issues = mod._validate_completed_job(jd, "20260718_101530_77777777")
         assert any("evidence_frames" in i for i in issues), issues
+
+
+def test_d10j_root_level_evidence_does_not_match_production_contract() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        job_id = "20260718_101530_66666666"
+        jd = _make_complete_job(
+            tmp,
+            job_id,
+            shortcomings=["zip_root_evidence_only"],
+        )
+        mod = _pr_module()
+        issues = mod._validate_completed_job(jd, job_id)
+        assert any("evidence/frame_001.jpg" in issue for issue in issues), issues
 
 ###############################################################################
 # D12  validation_outputs selection + symlink rejection

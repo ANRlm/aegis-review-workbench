@@ -263,8 +263,12 @@ def _validate_completed_job(job_dir: Path, job_id: str) -> list[str]:
                 # Evidence frames declared in report must be in ZIP (if report loaded)
                 if rpt_body:
                     for ef in rpt_body.get("evidence_frames", []):
-                        if ef not in members:
-                            issues.append(f"{job_dir.name}: evidence frame {ef} missing from ZIP")
+                        member = f"evidence/{ef}"
+                        if member not in members:
+                            issues.append(
+                                f"{job_dir.name}: evidence frame {member} "
+                                "missing from ZIP"
+                            )
                 # No absolute paths or .. in members
                 for name_ in members:
                     if ".." in name_ or name_.startswith("/"):
