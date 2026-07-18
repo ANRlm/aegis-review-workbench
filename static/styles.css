@@ -1,0 +1,140 @@
+:root {
+  color-scheme: light;
+  --canvas: #f7f7f3;
+  --surface: #ffffff;
+  --ink: #1e2422;
+  --muted: #68716d;
+  --line: #dfe4e1;
+  --accent: #39766a;
+  --radius: 18px;
+  font-family:
+    Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ink);
+  background: var(--canvas);
+}
+
+.shell {
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 48px 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 56px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: white;
+  background: var(--accent);
+  border-radius: 11px;
+}
+
+.health-link {
+  color: var(--accent);
+  font-size: 14px;
+  text-underline-offset: 4px;
+}
+
+.intro {
+  max-width: 780px;
+}
+
+h1 {
+  max-width: 680px;
+  margin: 0;
+  font-size: clamp(42px, 6vw, 72px);
+  line-height: 1.05;
+  letter-spacing: -0.055em;
+}
+
+.intro p {
+  max-width: 640px;
+  margin: 24px 0 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.75;
+}
+
+.contract-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 48px;
+}
+
+.contract-item {
+  min-height: 158px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.contract-item span {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.contract-item h2 {
+  margin: 22px 0 8px;
+  font-size: 18px;
+}
+
+.contract-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .shell {
+    width: min(100% - 28px, 640px);
+    padding: 28px 0;
+  }
+
+  .topbar {
+    margin-bottom: 48px;
+  }
+
+  .contract-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

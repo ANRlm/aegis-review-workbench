@@ -1,0 +1,10 @@
+name: aegis-review
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - ffmpeg
+  - nodejs=22
+  - pip
+  - pip:
+      - -r requirements.txt
