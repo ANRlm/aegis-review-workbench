@@ -1,26 +1,21 @@
 # 截图索引
 
-> 全部截图待补（前端 feature/frontend-workbench 尚未合并）
-> 更新：2026-07-18
+> 前端未合并，全部待补。更新 2026-07-18。
 
-| # | 截图 | 状态 |
-|---|------|------|
-| 1 | 工作台首页 | ⛔ |
-| 2 | 上传成功 | ⛔ |
-| 3 | 分析进行中 | ⛔ |
-| 4 | pass 结果 | ⛔ |
-| 5 | review 结果 | ⛔ |
-| 6 | reject 结果 | ⛔ |
-| 7 | 证据帧 | ⛔ |
-| 8 | 人工改判 | ⛔ |
-| 9 | 历史任务 | ⛔ |
-| 10 | 统计 | ⛔ |
-| 11 | JSON 下载 | ⛔ |
-| 12 | CSV 下载 | ⛔ |
-| 13 | ZIP 下载 | ⛔ |
-| 14 | 错误提示 | ⛔ |
-| 15 | Docker 终端 | ⛔ |
-
-纯文本证据：
-- tests/fixtures/media/health.json（curl 输出）
-- tests/fixtures/media/homepage.html（契约骨架页，非最终工作台）
+| # | 文件名 | 状态 |
+|---|--------|------|
+| 1 | workbench_full.png | ⛔ |
+| 2 | upload_success.png | ⛔ |
+| 3 | analysis_in_progress.png | ⛔ |
+| 4 | result_pass.png | ⛔ |
+| 5 | result_review.png | ⛔ |
+| 6 | result_reject.png | ⛔ |
+| 7 | evidence_frame.png | ⛔ |
+| 8 | manual_review.png | ⛔ |
+| 9 | history.png | ⛔ |
+| 10 | stats.png | ⛔ |
+| 11 | download_json.png | ⛔ |
+| 12 | download_csv.png | ⛔ |
+| 13 | download_zip.png | ⛔ |
+| 14 | error_unsupported.png | ⛔ |
+| 15 | docker_health.png | ⛔ |
