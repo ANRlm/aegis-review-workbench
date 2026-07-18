@@ -14,99 +14,98 @@
           <span class="brand-mark" aria-hidden="true">鉴</span>
           <span class="brand-name">影鉴 Aegis Review</span>
         </div>
-        <div class="health-badges" id="health-badges" role="status" aria-live="polite"></div>
+        <div class="topbar-right">
+          <div class="health-badges" id="health-badges" role="status" aria-live="polite"></div>
+          <nav class="stats-bar" id="stats-bar" aria-label="审核统计">
+            <div class="stat-item stat-total">
+              <span class="stat-label">总任务</span>
+              <span class="stat-value" id="stat-total">-</span>
+            </div>
+            <div class="stat-item stat-pass">
+              <span class="stat-label">通过</span>
+              <span class="stat-value" id="stat-pass">-</span>
+            </div>
+            <div class="stat-item stat-review">
+              <span class="stat-label">待复核</span>
+              <span class="stat-value" id="stat-review">-</span>
+            </div>
+            <div class="stat-item stat-reject">
+              <span class="stat-label">不通过</span>
+              <span class="stat-value" id="stat-reject">-</span>
+            </div>
+            <div class="stat-item stat-failed">
+              <span class="stat-label">失败</span>
+              <span class="stat-value" id="stat-failed">-</span>
+            </div>
+          </nav>
+        </div>
       </header>
 
-      <nav class="stats-bar" id="stats-bar" aria-label="审核统计">
-        <div class="stat-item stat-total">
-          <span class="stat-label">总任务</span>
-          <span class="stat-value" id="stat-total">-</span>
-        </div>
-        <div class="stat-item stat-pass">
-          <span class="stat-label">通过</span>
-          <span class="stat-value" id="stat-pass">-</span>
-        </div>
-        <div class="stat-item stat-review">
-          <span class="stat-label">待复核</span>
-          <span class="stat-value" id="stat-review">-</span>
-        </div>
-        <div class="stat-item stat-reject">
-          <span class="stat-label">不通过</span>
-          <span class="stat-value" id="stat-reject">-</span>
-        </div>
-        <div class="stat-item stat-failed">
-          <span class="stat-label">失败</span>
-          <span class="stat-value" id="stat-failed">-</span>
-        </div>
-      </nav>
-
-      <section class="upload-panel" id="upload-panel" aria-label="新建审核任务">
-        <h2 class="section-heading">新建任务</h2>
-        <div class="upload-body">
-          <div class="upload-form-row">
-            <label class="field-label" for="project-name">项目名称</label>
-            <input type="text" id="project-name" class="field-input" placeholder="例如：星港遗迹内容审核" maxlength="80" autocomplete="off">
-          </div>
-          <div class="upload-form-row">
-            <label class="field-label">审核素材</label>
-            <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="点击或拖放上传素材，支持 jpg、jpeg、png、mp4、mov，最大 200MB">
-              <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.mp4,.mov" hidden>
-              <span class="drop-icon" aria-hidden="true">+</span>
-              <span class="drop-text" id="drop-text">拖放或点击上传素材</span>
-              <span class="drop-hint">jpg / jpeg / png / mp4 / mov，最大 200MB</span>
-            </div>
-          </div>
-          <details class="settings-toggle" id="settings-toggle">
-            <summary class="settings-summary">规则阈值设置</summary>
-            <div class="settings-body" id="settings-body">
-              <div class="settings-row">
-                <label class="field-label" for="setting-risk-classes">风险类别（逗号分隔）</label>
-                <input type="text" id="setting-risk-classes" class="field-input" value="enemy">
-              </div>
-              <div class="settings-row">
-                <label class="field-label" for="setting-reject-conf">不通过置信度阈值</label>
-                <input type="number" id="setting-reject-conf" class="field-input" value="0.60" min="0" max="1" step="0.01">
-              </div>
-              <div class="settings-row">
-                <label class="field-label" for="setting-review-conf">待复核置信度阈值</label>
-                <input type="number" id="setting-review-conf" class="field-input" value="0.35" min="0" max="1" step="0.01">
-              </div>
-              <div class="settings-row">
-                <label class="field-label" for="setting-inference-conf">推理置信度阈值</label>
-                <input type="number" id="setting-inference-conf" class="field-input" value="0.25" min="0" max="1" step="0.01">
-              </div>
-              <div class="settings-row">
-                <label class="field-label" for="setting-sample-interval">采样间隔（秒）</label>
-                <input type="number" id="setting-sample-interval" class="field-input" value="1.0" min="0.1" max="10" step="0.1">
-              </div>
-              <div class="settings-row">
-                <label class="field-label" for="setting-max-frames">最大采样帧数</label>
-                <input type="number" id="setting-max-frames" class="field-input" value="120" min="1" max="120" step="1">
-              </div>
-            </div>
-          </details>
-          <button class="btn btn-primary" id="btn-upload" disabled>创建并分析</button>
-          <span class="upload-error" id="upload-error" role="alert"></span>
-        </div>
-      </section>
+      <div class="model-notice" id="model-notice" hidden role="alert">
+        模型未就绪，暂时无法创建并分析任务。
+      </div>
 
       <div class="main-grid">
-        <aside class="task-rail" aria-label="任务历史">
+        <aside class="task-rail" aria-label="任务与上传">
+          <section class="upload-compact" id="upload-panel" aria-label="新建审核任务">
+            <h2 class="section-heading">新建任务</h2>
+            <div class="upload-body">
+              <input type="text" id="project-name" class="field-input" placeholder="项目名称，例如：星港遗迹内容审核" maxlength="80" autocomplete="off">
+              <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="点击或拖放上传素材，支持 jpg、jpeg、png、mp4、mov，最大 200MB">
+                <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.mp4,.mov" hidden>
+                <span class="drop-icon" aria-hidden="true">+</span>
+                <span class="drop-text" id="drop-text">拖放或点击上传素材</span>
+                <span class="drop-hint">jpg / jpeg / png / mp4 / mov，最大 200MB</span>
+              </div>
+              <details class="settings-toggle">
+                <summary class="settings-summary">规则阈值设置</summary>
+                <div class="settings-body">
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-risk-classes">风险类别</label>
+                    <input type="text" id="setting-risk-classes" class="field-input" value="enemy">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-reject-conf">不通过阈值</label>
+                    <input type="number" id="setting-reject-conf" class="field-input" value="0.60" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-review-conf">待复核阈值</label>
+                    <input type="number" id="setting-review-conf" class="field-input" value="0.35" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-inference-conf">推理阈值</label>
+                    <input type="number" id="setting-inference-conf" class="field-input" value="0.25" min="0" max="1" step="0.01">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-sample-interval">采样间隔(s)</label>
+                    <input type="number" id="setting-sample-interval" class="field-input" value="1.0" min="0.1" max="10" step="0.1">
+                  </div>
+                  <div class="settings-row">
+                    <label class="field-label" for="setting-max-frames">最大帧数</label>
+                    <input type="number" id="setting-max-frames" class="field-input" value="120" min="1" max="120" step="1">
+                  </div>
+                </div>
+              </details>
+              <button class="btn btn-primary" id="btn-upload" disabled>创建并分析</button>
+              <span class="upload-error" id="upload-error" role="alert"></span>
+            </div>
+          </section>
+
+          <hr class="rail-divider">
+
           <div class="rail-header">
             <h2 class="section-heading">任务历史</h2>
-            <div class="filter-row">
-              <select class="field-input filter-select" id="status-filter" aria-label="按状态筛选">
-                <option value="">全部状态</option>
-                <option value="created">已创建</option>
-                <option value="queued">排队中</option>
-                <option value="running">分析中</option>
-                <option value="completed">已完成</option>
-                <option value="failed">失败</option>
-              </select>
-            </div>
+            <select class="field-input filter-select" id="status-filter" aria-label="按状态筛选">
+              <option value="">全部状态</option>
+              <option value="created">已创建</option>
+              <option value="queued">排队中</option>
+              <option value="running">分析中</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+            </select>
           </div>
           <div class="task-list" id="task-list" role="listbox" aria-label="任务列表">
-            <div class="empty-state" id="task-empty">暂无任务</div>
+            <div class="empty-state">暂无任务</div>
           </div>
         </aside>
 
@@ -126,7 +125,7 @@
             <p class="failed-icon" aria-hidden="true">!</p>
             <p class="failed-title">任务执行失败</p>
             <p class="failed-message" id="evidence-failed-message"></p>
-            <button class="btn btn-secondary" id="btn-retry">重新分析</button>
+            <button class="btn btn-secondary" id="btn-retry" disabled>重新分析</button>
           </div>
 
           <div class="evidence-content" id="evidence-content" hidden>

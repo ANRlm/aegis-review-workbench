@@ -8,8 +8,8 @@
     selectedJobId: null,
     selectedJob: null,
     report: null,
-    pollingTimer: null,
-    pollingAbort: null,
+    pollTimeout: null,
+    pollAbort: null,
     selectedFile: null,
   };
 
@@ -31,6 +31,7 @@
 
   function cacheDom() {
     dom.healthBadges = document.getElementById("health-badges");
+    dom.modelNotice = document.getElementById("model-notice");
     dom.statTotal = document.getElementById("stat-total");
     dom.statPass = document.getElementById("stat-pass");
     dom.statReview = document.getElementById("stat-review");
@@ -44,8 +45,6 @@
     dom.uploadError = document.getElementById("upload-error");
     dom.statusFilter = document.getElementById("status-filter");
     dom.taskList = document.getElementById("task-list");
-    dom.taskEmpty = document.getElementById("task-empty");
-    dom.evidencePanel = document.getElementById("evidence-panel");
     dom.evidenceEmpty = document.getElementById("evidence-empty");
     dom.evidenceLoading = document.getElementById("evidence-loading");
     dom.evidenceLoadingText = document.getElementById("evidence-loading-text");
@@ -82,7 +81,6 @@
   }
 
   var confirmResolve = null;
-
   var BASE = "/api";
 
   function apiUrl(path) {
@@ -98,7 +96,9 @@
   }
 
   function apiFetch(path, options) {
-    return fetch(apiUrl(path), options).then(function (response) {
+    var opts = options || {};
+    if (state.pollAbort) opts.signal = state.pollAbort.signal;
+    return fetch(apiUrl(path), opts).then(function (response) {
       return response.json().then(function (payload) {
         if (!response.ok) {
           var errMsg = (payload && payload.error && payload.error.message) || "HTTP " + response.status;
@@ -119,6 +119,7 @@
     return apiFetch("/health").then(function (data) {
       state.health = data;
       renderHealth();
+      return data;
     });
   }
 
@@ -126,6 +127,7 @@
     return apiFetch("/stats").then(function (data) {
       state.stats = data.stats;
       renderStats();
+      return data;
     }).catch(function () {
       state.stats = null;
       renderStats();
@@ -137,20 +139,19 @@
     return apiFetch("/jobs" + qs).then(function (data) {
       state.jobs = data.jobs || [];
       renderJobs();
+      return data;
     });
   }
 
   function fetchJob(jobId) {
     return apiFetch("/jobs/" + encodeURIComponent(jobId)).then(function (data) {
-      state.selectedJob = data.job || data;
-      return state.selectedJob;
+      return data.job || data;
     });
   }
 
   function fetchReport(jobId) {
     return apiFetch("/jobs/" + encodeURIComponent(jobId) + "/report").then(function (data) {
-      state.report = data.report;
-      return state.report;
+      return data.report;
     });
   }
 
@@ -178,14 +179,31 @@
     return BASE + "/jobs/" + encodeURIComponent(jobId) + "/artifacts/" + encodeURIComponent(filename);
   }
 
-  /* Rendering */
+  /* ---- Numeric parsing ---- */
+  function parseNumeric(value, defaultValue) {
+    if (value === "" || value === null || value === undefined) return defaultValue;
+    var num = Number(value);
+    if (!isFinite(num)) return defaultValue;
+    return num;
+  }
+
+  /* ---- Rendering ---- */
   function renderHealth() {
-    if (!state.health) { dom.healthBadges.innerHTML = ""; return; }
+    if (!state.health) { dom.healthBadges.innerHTML = ""; renderModelNotice(); return; }
     var h = state.health;
     dom.healthBadges.innerHTML =
       '<span class="health-badge"><span class="health-dot ' + (h.status === "ok" ? "ok" : "warn") + '"></span>服务正常</span>' +
       '<span class="health-badge"><span class="health-dot ' + (h.model_ready ? "ok" : "warn") + '"></span>模型' + (h.model_ready ? "就绪" : "未就绪") + '</span>' +
       '<span class="health-badge"><span class="health-dot ' + (h.ffmpeg_ready ? "ok" : "warn") + '"></span>FFmpeg' + (h.ffmpeg_ready ? "就绪" : "未就绪") + '</span>';
+    renderModelNotice();
+  }
+
+  function renderModelNotice() {
+    var ready = state.health && state.health.model_ready === true;
+    if (dom.modelNotice) {
+      dom.modelNotice.hidden = ready;
+    }
+    updateUploadButton();
   }
 
   function renderStats() {
@@ -211,25 +229,36 @@
       item.setAttribute("data-job-id", job.job_id);
       item.tabIndex = 0;
       var statusClass = "task-status " + job.status + (job.status === "running" ? " pulse-ring" : "");
+      var assetName = job.asset_name || "";
       item.innerHTML =
         '<div class="task-item-top">' +
-        '<span class="task-asset-name" title="' + escapeHtml(job.asset_name || "") + '">' + escapeHtml(job.asset_name || "") + '</span>' +
+        '<span class="task-asset-name" title="' + escapeHtml(assetName) + '">' + escapeHtml(assetName) + '</span>' +
         '<span class="' + statusClass + '">' + (STATUS_LABELS[job.status] || job.status) + '</span>' +
         '</div>' +
         '<div class="task-item-meta">' +
         '<span>' + escapeHtml(job.project_name || "") + '</span>' +
         '<span>' + formatTime(job.created_at) + '</span>' +
-        '<button class="task-delete-btn" data-delete="' + escapeHtml(job.job_id) + '" title="删除">&times;</button>' +
+        '<button class="task-delete-btn" data-delete="' + escapeHtml(job.job_id) + '" aria-label="删除任务 ' + escapeHtml(assetName) + '" title="删除">&times;</button>' +
         '</div>';
       item.addEventListener("click", function (e) {
         if (e.target.closest("[data-delete]")) {
+          e.stopPropagation();
           handleDelete(e.target.closest("[data-delete]").getAttribute("data-delete"));
           return;
         }
         selectJob(job.job_id);
       });
       item.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectJob(job.job_id); }
+        if (e.key === "Enter" || e.key === " ") {
+          if (e.target.closest("[data-delete]")) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDelete(e.target.closest("[data-delete]").getAttribute("data-delete"));
+            return;
+          }
+          e.preventDefault();
+          selectJob(job.job_id);
+        }
       });
       dom.taskList.appendChild(item);
     });
@@ -249,7 +278,7 @@
     return String(str).replace(/[&<>"']/g, function (c) { return map[c]; });
   }
 
-  /* Evidence Panel */
+  /* ---- Evidence Panel ---- */
   function showEvidenceState(stateName) {
     dom.evidenceEmpty.hidden = true;
     dom.evidenceLoading.hidden = true;
@@ -274,24 +303,22 @@
       renderDetections(state.report);
       renderEvidenceFrames(state.report, job.job_id);
     }
+
+    dom.evidenceStatusBadge.removeAttribute("style");
+    dom.evidenceStatusBadge.className = "status-badge";
+
     if (job.status === "running" || job.status === "queued") {
-      dom.evidenceStatusBadge.className = "status-badge";
+      dom.evidenceStatusBadge.classList.add("status-running");
       dom.evidenceStatusBadge.textContent = STATUS_LABELS[job.status] || job.status;
-      dom.evidenceStatusBadge.style.color = "#1a56db";
-      dom.evidenceStatusBadge.style.background = "#e8f0fe";
     } else if (job.status === "created") {
-      dom.evidenceStatusBadge.className = "status-badge";
+      dom.evidenceStatusBadge.classList.add("status-created");
       dom.evidenceStatusBadge.textContent = "待分析";
-      dom.evidenceStatusBadge.style.color = "#68716d";
-      dom.evidenceStatusBadge.style.background = "#dfe4e1";
     } else if (job.status === "completed" && state.report) {
       var dec = state.report.final_decision || state.report.auto_decision;
-      dom.evidenceStatusBadge.className = "status-badge " + (dec || "");
+      dom.evidenceStatusBadge.classList.add(dec || "");
       dom.evidenceStatusBadge.textContent = DECISION_LABELS[dec] || dec || "-";
-    } else {
-      dom.evidenceStatusBadge.className = "status-badge";
-      dom.evidenceStatusBadge.textContent = "";
     }
+
     var existingBtn = document.getElementById("btn-analyze-created");
     if (existingBtn) existingBtn.remove();
     if (job.status === "created") {
@@ -300,6 +327,8 @@
       analyzeBtn.className = "btn btn-primary";
       analyzeBtn.textContent = "开始分析";
       analyzeBtn.style.marginTop = "12px";
+      var modelReady = state.health && state.health.model_ready === true;
+      if (!modelReady) analyzeBtn.disabled = true;
       analyzeBtn.addEventListener("click", handleRetry);
       dom.evidenceContent.appendChild(analyzeBtn);
     }
@@ -310,7 +339,7 @@
     if (job.asset_type === "image") {
       dom.assetPreview.innerHTML = '<img src="' + escapeHtml(job.asset_url) + '" alt="' + escapeHtml(job.asset_name || "素材") + '" loading="lazy">';
     } else {
-      dom.assetPreview.innerHTML = '<video src="' + escapeHtml(job.asset_url) + '" controls preload="metadata" style="width:100%;max-height:340px;border-radius:10px;border:1px solid var(--line);background:#000"></video>';
+      dom.assetPreview.innerHTML = '<video src="' + escapeHtml(job.asset_url) + '" controls preload="metadata" class="preview-video"></video>';
     }
   }
 
@@ -319,13 +348,13 @@
     var detections = report.detections || [];
     if (detections.length === 0) {
       dom.detectionSummary.hidden = false;
-      dom.detectionGrid.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:8px 0">未检测到规则目标</div>';
+      dom.detectionGrid.innerHTML = '<div class="detection-none">未检测到规则目标</div>';
       return;
     }
     var byClass = {};
     detections.forEach(function (d) {
       var name = d.class_name || "未知";
-      if (!byClass[name]) byClass[name] = { count: 0, maxConf: 0, classId: d.class_id };
+      if (!byClass[name]) byClass[name] = { count: 0, maxConf: 0 };
       byClass[name].count++;
       if (d.confidence > byClass[name].maxConf) byClass[name].maxConf = d.confidence;
     });
@@ -372,7 +401,7 @@
     });
   }
 
-  /* Review Panel */
+  /* ---- Review Panel ---- */
   function renderReviewPanel() {
     if (!state.selectedJob) { dom.reviewPlaceholder.hidden = false; dom.reviewContent.hidden = true; dom.downloadSection.hidden = true; return; }
     var job = state.selectedJob;
@@ -398,7 +427,7 @@
     }
   }
 
-  /* Job Selection & Polling */
+  /* ---- Job Selection & Polling ---- */
   function selectJob(jobId) {
     cancelPolling();
     state.selectedJobId = jobId;
@@ -415,8 +444,9 @@
       state.selectedJob = job;
       var status = job.status;
       if (status === "completed") {
-        return fetchReport(jobId).then(function () {
+        return fetchReport(jobId).then(function (report) {
           if (state.selectedJobId !== jobId) return;
+          state.report = report;
           showEvidenceState("content");
           renderEvidenceContent(job);
           renderReviewPanel();
@@ -425,7 +455,7 @@
         showEvidenceState("failed");
         dom.evidenceFailedMsg.textContent = job.error || "任务执行失败。";
         dom.btnRetry.textContent = "重新分析";
-        dom.btnRetry.style.display = "";
+        updateRetryButton();
         renderReviewPanel();
       } else if (status === "created") {
         showEvidenceState("content");
@@ -444,17 +474,21 @@
     });
   }
 
-  function startPolling(jobId) {
-    cancelPolling();
-    state.pollingTimer = setInterval(function () {
-      if (state.selectedJobId !== jobId) { cancelPolling(); return; }
-      fetchJob(jobId).then(function (job) {
+  function pollJob(jobId, token) {
+    var abort = new AbortController();
+    state.pollAbort = abort;
+    state.pollTimeout = setTimeout(function () {
+      state.pollAbort = null;
+      state.pollTimeout = null;
+      if (state.selectedJobId !== jobId) return;
+      apiFetch("/jobs/" + encodeURIComponent(jobId), { signal: abort.signal }).then(function (data) {
+        var job = data.job || data;
         if (state.selectedJobId !== jobId) return;
         state.selectedJob = job;
         if (job.status === "completed") {
-          cancelPolling();
-          return fetchReport(jobId).then(function () {
+          return fetchReport(jobId).then(function (report) {
             if (state.selectedJobId !== jobId) return;
+            state.report = report;
             showEvidenceState("content");
             renderEvidenceContent(job);
             renderReviewPanel();
@@ -462,7 +496,6 @@
             fetchJobs(dom.statusFilter.value || undefined);
           });
         } else if (job.status === "failed") {
-          cancelPolling();
           showEvidenceState("failed");
           dom.evidenceFailedMsg.textContent = job.error || "任务执行失败。";
           renderReviewPanel();
@@ -472,25 +505,38 @@
           showEvidenceState("content");
           renderEvidenceContent(job);
           renderJobs();
+          pollJob(jobId, token);
         }
       }).catch(function (err) {
-        cancelPolling();
+        if (state.selectedJobId !== jobId) return;
         showEvidenceState("failed");
         dom.evidenceFailedMsg.textContent = err.message || "轮询失败，请检查网络连接后重试。";
       });
     }, 1000);
   }
 
-  function cancelPolling() {
-    if (state.pollingTimer) { clearInterval(state.pollingTimer); state.pollingTimer = null; }
-    if (state.pollingAbort) { state.pollingAbort.abort(); state.pollingAbort = null; }
+  function startPolling(jobId) {
+    cancelPolling();
+    var token = {};
+    pollJob(jobId, token);
+    state._pollToken = token;
   }
 
-  /* Upload */
+  function cancelPolling() {
+    if (state.pollTimeout) { clearTimeout(state.pollTimeout); state.pollTimeout = null; }
+    if (state.pollAbort) { state.pollAbort.abort(); state.pollAbort = null; }
+    state._pollToken = null;
+  }
+
+  /* ---- Upload ---- */
   function handleUpload() {
     var projectName = dom.projectName.value.trim();
     if (!projectName || projectName.length > 80) { dom.uploadError.textContent = "请输入 1–80 字的项目名称。"; return; }
     if (!state.selectedFile) { dom.uploadError.textContent = "请选择审核素材。"; return; }
+    if (!state.health || state.health.model_ready !== true) {
+      dom.uploadError.textContent = "模型未就绪，暂时无法创建并分析任务。";
+      return;
+    }
     dom.btnUpload.disabled = true;
     dom.uploadError.textContent = "";
     var formData = new FormData();
@@ -500,42 +546,36 @@
     if (settings) {
       try { formData.append("settings", JSON.stringify(settings)); } catch (_) { dom.uploadError.textContent = "规则设置格式不正确。"; dom.btnUpload.disabled = false; return; }
     }
-    var modelReady = state.health && state.health.model_ready === true;
     createJob(formData).then(function (data) {
       var jobId = data.job.job_id;
-      dom.uploadError.textContent = "";
-      if (modelReady) return analyzeJob(jobId).then(function () { return { jobId: jobId, analyzed: true }; });
-      return { jobId: jobId, analyzed: false };
-    }).then(function (result) {
+      return analyzeJob(jobId).then(function () { return jobId; });
+    }).then(function (jobId) {
       dom.uploadError.textContent = "";
       resetUploadForm();
-      return fetchJobs(dom.statusFilter.value || undefined).then(function () { return fetchStats(); }).then(function () { return result; });
-    }).then(function (result) {
-      selectJob(result.jobId);
-      if (result.analyzed) toast("任务已创建，正在分析…");
-      else toast("任务已创建，模型未就绪，请等待后重新分析。");
+      return fetchJobs(dom.statusFilter.value || undefined).then(function () { return fetchStats(); }).then(function () { return jobId; });
+    }).then(function (jobId) {
+      selectJob(jobId);
+      toast("任务已创建，正在分析…");
     }).catch(function (err) {
       dom.uploadError.textContent = err.message || "上传失败，请重试。";
-      dom.btnUpload.disabled = false;
-    }).finally(function () {
-      if (!state.selectedJobId || (state.selectedJob && state.selectedJob.status !== "running" && state.selectedJob.status !== "queued")) {
-        dom.btnUpload.disabled = !state.selectedFile || !dom.projectName.value.trim();
-      }
+      updateUploadButton();
     });
   }
 
   function buildSettings() {
-    var riskClassesEl = document.getElementById("setting-risk-classes");
-    var riskClasses = riskClassesEl ? riskClassesEl.value.trim() : "";
-    riskClasses = riskClasses.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    function fieldValue(id) { return document.getElementById(id) ? document.getElementById(id).value : ""; }
     return {
-      risk_classes: riskClasses.length ? riskClasses : ["enemy"],
-      reject_confidence: parseFloat((document.getElementById("setting-reject-conf") && document.getElementById("setting-reject-conf").value)) || 0.6,
-      review_confidence: parseFloat((document.getElementById("setting-review-conf") && document.getElementById("setting-review-conf").value)) || 0.35,
-      inference_confidence: parseFloat((document.getElementById("setting-inference-conf") && document.getElementById("setting-inference-conf").value)) || 0.25,
+      risk_classes: (function () {
+        var raw = (document.getElementById("setting-risk-classes") ? document.getElementById("setting-risk-classes").value : "").trim();
+        var items = raw ? raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean) : [];
+        return items.length ? items : ["enemy"];
+      })(),
+      reject_confidence: parseNumeric(fieldValue("setting-reject-conf"), 0.60),
+      review_confidence: parseNumeric(fieldValue("setting-review-conf"), 0.35),
+      inference_confidence: parseNumeric(fieldValue("setting-inference-conf"), 0.25),
       min_evidence_frames: 1,
-      sample_interval_seconds: parseFloat((document.getElementById("setting-sample-interval") && document.getElementById("setting-sample-interval").value)) || 1.0,
-      max_sample_frames: parseInt((document.getElementById("setting-max-frames") && document.getElementById("setting-max-frames").value), 10) || 120,
+      sample_interval_seconds: parseNumeric(fieldValue("setting-sample-interval"), 1.0),
+      max_sample_frames: parseInt(fieldValue("setting-max-frames"), 10) || 120,
     };
   }
 
@@ -545,10 +585,10 @@
     dom.fileInput.value = "";
     dom.dropZone.classList.remove("file-selected");
     dom.dropText.textContent = "拖放或点击上传素材";
-    dom.btnUpload.disabled = true;
+    updateUploadButton();
   }
 
-  /* Delete */
+  /* ---- Delete ---- */
   function handleDelete(jobId) {
     confirmDialog("确认删除此任务？删除后不可恢复。").then(function (confirmed) {
       if (!confirmed) return;
@@ -563,7 +603,7 @@
     });
   }
 
-  /* Review */
+  /* ---- Review ---- */
   function handleSaveReview() {
     if (!state.selectedJobId || !state.selectedJob) return;
     var jobId = state.selectedJobId;
@@ -592,16 +632,14 @@
     }).finally(function () { dom.btnSaveReview.disabled = false; });
   }
 
-  /* Downloads */
-  function downloadArtifact(jobId, filename) {
-    if (!jobId) return;
-    var a = document.createElement("a");
-    a.href = artifactUrl(jobId, filename);
-    a.download = filename;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  /* ---- Downloads ---- */
+  function validateDownloadUrl(url, jobId) {
+    try {
+      var u = new URL(url, window.location.origin);
+      if (u.origin !== window.location.origin) return false;
+      var expected = "/api/jobs/" + encodeURIComponent(jobId) + "/artifacts/";
+      return u.pathname.indexOf(expected) === 0;
+    } catch (_) { return false; }
   }
 
   function handleDownloadJson() {
@@ -621,22 +659,32 @@
   function handleDownloadCsv() {
     if (!state.selectedJobId || !state.report) { toast("报告尚未加载。", true); return; }
     var downloads = state.report.downloads;
-    if (downloads && downloads.csv) downloadArtifact(state.selectedJobId, downloads.csv);
-    else toast("CSV 文件不可用。", true);
+    if (!downloads || !downloads.csv) { toast("CSV 文件不可用。", true); return; }
+    var url = downloads.csv;
+    if (!validateDownloadUrl(url, state.selectedJobId)) { toast("CSV 下载地址无效。", true); return; }
+    window.location.assign(url);
   }
 
   function handleDownloadZip() {
     if (!state.selectedJobId || !state.report) { toast("报告尚未加载。", true); return; }
     var downloads = state.report.downloads;
-    if (downloads && downloads.zip) downloadArtifact(state.selectedJobId, downloads.zip);
-    else toast("ZIP 文件不可用。", true);
+    if (!downloads || !downloads.zip) { toast("ZIP 文件不可用。", true); return; }
+    var url = downloads.zip;
+    if (!validateDownloadUrl(url, state.selectedJobId)) { toast("ZIP 下载地址无效。", true); return; }
+    window.location.assign(url);
+  }
+
+  function updateRetryButton() {
+    var modelReady = state.health && state.health.model_ready === true;
+    dom.btnRetry.disabled = !modelReady;
   }
 
   function handleRetry() {
     if (!state.selectedJobId) return;
     var jobId = state.selectedJobId;
-    if (state.health && state.health.model_ready === false) { toast("模型尚未就绪，无法重新分析。", true); return; }
+    if (!state.health || state.health.model_ready !== true) { toast("模型尚未就绪，无法分析。", true); return; }
     analyzeJob(jobId).then(function () { return fetchJob(jobId); }).then(function (job) {
+      if (state.selectedJobId !== jobId) return;
       state.selectedJob = job;
       showEvidenceState("content");
       renderEvidenceContent(job);
@@ -647,7 +695,7 @@
     }).catch(function (err) { toast(err.message || "重新分析失败。", true); });
   }
 
-  /* Toast */
+  /* ---- Toast ---- */
   var toastTimer = null;
   function toast(message, isError) {
     var existing = document.querySelector(".toast");
@@ -662,7 +710,7 @@
     toastTimer = setTimeout(function () { el.remove(); toastTimer = null; }, 2500);
   }
 
-  /* Confirm Dialog */
+  /* ---- Confirm Dialog ---- */
   function confirmDialog(message) {
     return new Promise(function (resolve) {
       dom.confirmMessage.textContent = message;
@@ -676,7 +724,7 @@
     if (confirmResolve) { confirmResolve(confirmed); confirmResolve = null; }
   }
 
-  /* File Handling */
+  /* ---- File Handling ---- */
   function setupDropZone() {
     dom.dropZone.addEventListener("click", function () { dom.fileInput.click(); });
     dom.dropZone.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dom.fileInput.click(); } });
@@ -707,10 +755,13 @@
   }
 
   function updateUploadButton() {
-    dom.btnUpload.disabled = !state.selectedFile || !dom.projectName.value.trim();
+    var hasProject = !!dom.projectName.value.trim();
+    var hasFile = !!state.selectedFile;
+    var modelReady = state.health && state.health.model_ready === true;
+    dom.btnUpload.disabled = !(hasProject && hasFile && modelReady);
   }
 
-  /* Init */
+  /* ---- Init ---- */
   function init() {
     cacheDom();
     setupDropZone();
@@ -726,6 +777,8 @@
     dom.btnConfirm.addEventListener("click", function () { closeConfirmDialog(true); });
     window.addEventListener("beforeunload", cancelPolling);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && dom.confirmDialog.open) closeConfirmDialog(false); });
+    updateUploadButton();
+    updateRetryButton();
     fetchHealth().then(function () { return fetchStats(); }).then(function () { return fetchJobs(); }).then(function () { showEvidenceState("empty"); }).catch(function () { showEvidenceState("empty"); dom.evidenceEmpty.querySelector(".empty-desc").textContent = "无法连接服务，请确认服务已启动。"; });
   }
 

@@ -3,26 +3,28 @@
 ## 概述
 
 - 前端工程师：孙畅 (Helen-444)
-- 分支：`feature/frontend-workbench`
+- 分支：`feature/frontend-workbench-clean`
 - 技术栈：原生 HTML、CSS、JavaScript（无框架）
 
-## 页面结构
+## 页面结构（1366×768 桌面首屏）
 
 ```
-+--------------------------------------------------+
-| 品牌标识 · 健康状态 (服务 / 模型 / FFmpeg)        |
-+--------------------------------------------------+
-| 统计栏 (总任务 / 通过 / 待复核 / 不通过 / 失败)   |
-+--------------------------------------------------+
-| 新建任务 (项目名 / 拖放上传 / 规则阈值设置)       |
-+------------+---------------------+---------------+
-| 任务历史    | 素材与证据           | 审核操作      |
-| 状态筛选    | 空状态/加载/失败     | 自动/最终结论 |
-| 任务列表    | 素材预览             | 人工改判      |
-| 删除确认    | 检测汇总             | 负责人/备注   |
-|            | 证据帧网格           | JSON/CSV/ZIP  |
-+------------+---------------------+---------------+
++----------------------------------+-----------------------------------------+
+| 品牌标识                          | 健康状态  ·  统计栏（总/通过/复核/拒绝/失败）|
++-------------+--------------------+-----------------------------------------+
+| 新建任务     | 素材与证据           | 审核操作                                |
+| 项目名       | 空状态/加载/失败     | 自动结论 / 最终结论                     |
+| 拖放上传     | 素材预览             | 人工改判 (pass/review/reject)           |
+| 规则阈值     | 检测汇总             | 负责人（必填）/ 备注                    |
+| [创建并分析] | 证据帧网格           | JSON / CSV / ZIP 下载                   |
++-------------+--------------------+-----------------------------------------+
+| 任务历史     |                    |                                         |
+| 状态筛选     |                    |                                         |
+| 任务列表     |                    |                                         |
++-------------+--------------------+-----------------------------------------+
 ```
+
+布局：三栏网格 `300px minmax(0, 1fr) 300px`，上传入口集成在左栏顶部。
 
 ## 设计令牌
 
@@ -68,16 +70,44 @@
 - `GET /api/jobs/<id>/report` — 获取分析报告
 - `GET /api/jobs/<id>/artifacts/<filename>` — 产物下载
 
+## 下载安全
+
+- CSV/ZIP 直接使用 `report.downloads` 中的完整 API URL
+- 下载前验证 URL：同源检测 + pathname 前缀校验
+- 非法 URL 显示中文错误，不发起导航
+- JSON 报告序列化为 Blob 下载
+
+## 轮询机制
+
+- 使用递归 `setTimeout`（非 `setInterval`），上次请求完成后才排定下次
+- `AbortController` 传入 fetch signal
+- 切换任务、终态到达、网络错误时 `clearTimeout` + `abort`
+- `fetchJob`/`fetchReport` 只返回数据，不直接写全局 state
+- 调用者通过 `selectedJobId` token 确认后才写入
+
+## model_ready 处理
+
+- health 未加载、加载失败或 `model_ready=false` 时，"创建并分析"按钮保持 disabled
+- 上传区域下方显示警告："模型未就绪，暂时无法创建并分析任务。"
+- created/failed 任务的"开始分析/重新分析"按钮同步禁用
+- `updateUploadButton()` 同时检查项目名、文件、model_ready
+
+## 数值解析
+
+- 使用 `parseNumeric(value, default)` 函数
+- 空字符串使用默认值，`Number.isFinite()` 校验
+- 合法 0 保留，不用 `|| default` 短路
+
 ## 响应式设计
 
 | 视口 | 布局 |
 |------|------|
-| >=1060px | 三栏 280px + 1fr + 280px |
-| 860-1060px | 窄三栏 240px + 1fr + 240px |
-| 500-860px | 单列，任务历史限高 240px |
-| <500px | 单列紧凑，统计弹性伸缩 |
+| >=1060px | 三栏 300px + 1fr + 300px |
+| 860-1060px | 窄三栏 260px + 1fr + 260px |
+| 500-860px | 单列 |
+| <500px | 单列紧凑 |
 
-窄屏无横向滚动，核心操作可见。
+窄屏无横向滚动，`document.documentElement.scrollWidth === document.documentElement.clientWidth`。
 
 ## 可访问性
 
@@ -86,19 +116,20 @@
 - role="status" / aria-live="polite" 用于动态内容
 - 显式 `:focus-visible` 焦点环
 - `<dialog>` + `aria-modal="true"` 确认框
+- 删除按钮带 `aria-label="删除任务 <名称>"`
+- 键盘 Enter/Space 在删除按钮上打开确认框，不切换任务
 - `prefers-reduced-motion` 禁用所有动画
 
-## 轮询管理
+## 状态徽章
 
-- 每任务 1 秒独立轮询
-- 切换任务、终态到达、页面卸载时 `clearInterval`
-- fetch 回调中比对 `selectedJobId` 避免过期请求
+- 使用 CSS class（`.status-running`, `.status-created`）替代 inline style
+- 切换状态时 `removeAttribute("style")` 清除旧行内样式
 
 ## 截图清单
 
 | 文件 | 视口 | 状态 |
 |------|------|------|
-| `screenshots/empty_1366x768.png` | 1366×768 | 空状态 |
+| `screenshots/empty_1366x768.png` | 1366×768 | 空状态 / model_ready=false |
 | `screenshots/running_1366x768.png` | 1366×768 | running |
 | `screenshots/failed_1366x768.png` | 1366×768 | failed |
 | `screenshots/completed_1366x768.png` | 1366×768 | completed |
