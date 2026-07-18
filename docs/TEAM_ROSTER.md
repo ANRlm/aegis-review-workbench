@@ -1,14 +1,15 @@
 # 小组成员与贡献映射
 
-成员按任务比重与固定分支进行真实协作。四名协作者邀请已于 2026-07-18 发出；成员接受邀请并确认 Git 身份后方可开始提交。
+成员按任务比重与固定分支进行真实协作。四名协作者邀请已于 2026-07-18
+发出并接受。成员已确认以下学号可写入公开课程仓库。
 
 | 角色 | 比重 | 姓名 | 学号 | GitHub 用户名 | Git 提交邮箱（需本人确认已验证） | 固定分支 |
 |---|---:|---|---|---|---|---|
-| 组长/产品与集成 | 40% | 李佳铭 | 待补充 | ANRlm | nai.ying.cnhyk@gmail.com | `main` 或 `feature/leader-core` |
-| 后端工程师 | 15% | 楼泽华 | 待补充 | llongzhanl | 2607909599@qq.com | `feature/backend-api` |
-| CV 算法工程师 | 15% | 戴瑜 | 待补充 | DangoSakana | 1926846020@qq.com | `feature/cv-pipeline` |
-| 前端工程师 | 15% | 孙畅 | 待补充 | Helen-444 | 904834073@qq.com | `feature/frontend-workbench` |
-| 测试与交付工程师 | 15% | 朱可心 | 待补充 | xin-rabbit | 2140931620@qq.com | `feature/qa-delivery` |
+| 组长/产品与集成 | 40% | 李佳铭 | 20231060257 | ANRlm | nai.ying.cnhyk@gmail.com | `main` 或 `feature/leader-core` |
+| 后端工程师 | 15% | 楼泽华 | 20231060057 | llongzhanl | 2607909599@qq.com | `feature/backend-api` |
+| CV 算法工程师 | 15% | 戴瑜 | 20231060139 | DangoSakana | 1926846020@qq.com | `feature/cv-pipeline` |
+| 前端工程师 | 15% | 孙畅 | 20231340027 | Helen-444 | 904834073@qq.com | `feature/frontend-workbench` |
+| 测试与交付工程师 | 15% | 朱可心 | 20231060277 | xin-rabbit | 2140931620@qq.com | `feature/qa-delivery` |
 
 当前契约骨架作者身份为：
 

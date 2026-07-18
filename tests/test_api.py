@@ -332,7 +332,9 @@ class TestUploadBoundaries:
         assert resp.status_code == 400
     def test_unknown_exception_returns_500(self, tmp_path):
         app, service = _mock_app(tmp_path)
-        service.get_job.side_effect = RuntimeError('secret /Users/example/.ssh/key.pem')
+        service.get_job.side_effect = RuntimeError(
+            "secret /" "Users/example/.ssh/key.pem"
+        )
         resp = app.test_client().get('/api/jobs/20260718_101530_a1b2c3d4')
         assert resp.status_code == 500
         payload = resp.get_json()
@@ -379,7 +381,9 @@ class TestHttpException:
     def test_bad_request_returns_400_json(self, tmp_path: Path) -> None:
         from werkzeug.exceptions import BadRequest
         app, service = _mock_app(tmp_path)
-        service.get_job.side_effect = BadRequest("secret /Users/example/")
+        service.get_job.side_effect = BadRequest(
+            "secret /" "Users/example/"
+        )
         resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
         assert resp.status_code == 400
         payload = resp.get_json()
@@ -413,7 +417,9 @@ class TestHttpException:
     def test_method_not_allowed_returns_405(self, tmp_path: Path) -> None:
         from werkzeug.exceptions import MethodNotAllowed
         app, service = _mock_app(tmp_path)
-        service.get_job.side_effect = MethodNotAllowed("secret /Users/example/private")
+        service.get_job.side_effect = MethodNotAllowed(
+            "secret /" "Users/example/private"
+        )
         resp = app.test_client().get("/api/jobs/20260718_101530_a1b2c3d4")
         assert resp.status_code == 405
         assert resp.is_json

@@ -2,138 +2,72 @@
 
 ## 概述
 
-- 前端工程师：孙畅 (Helen-444)
-- 分支：`feature/frontend-workbench-clean`
-- 技术栈：原生 HTML、CSS、JavaScript（无框架）
+- 前端工程师：孙畅（Helen-444）
+- 最终 PR：#6 `feature/frontend-workbench-clean`
+- 技术栈：原生 HTML、CSS、JavaScript
+- 最终状态：已合入并通过真实 Docker 端到端验收
 
-## 页面结构（1366×768 桌面首屏）
+## 页面结构
 
-```
-+----------------------------------+-----------------------------------------+
-| 品牌标识                          | 健康状态  ·  统计栏（总/通过/复核/拒绝/失败）|
-+-------------+--------------------+-----------------------------------------+
-| 新建任务     | 素材与证据           | 当前规则（风险类别/阈值）                |
-| 项目名       | 空状态/加载/失败     | 审核操作                                |
-| 拖放上传     | 素材预览             | 自动结论 / 最终结论                     |
-| 规则阈值     | 检测汇总             | 人工改判 (pass/review/reject)           |
-| [创建/分析]  | 证据帧网格           | 负责人（必填）/ 备注                    |
-+-------------+--------------------+ JSON / CSV / ZIP 下载                   |
-| 任务历史     |                    |                                         |
-| 状态筛选     |                    |                                         |
-+-------------+--------------------+-----------------------------------------+
+桌面使用 `300px minmax(0, 1fr) 300px` 三栏：左侧上传与历史，中部素材、
+检测汇总和证据，右侧规则、人工审核和下载。顶部持续显示服务、模型、
+FFmpeg 与三档统计。
+
+页面完整覆盖空状态、加载/分析中、失败态和完成态：
+
+```text
+空 → 上传 → created → queued → running → completed/failed
+                                      └→ 报告/证据/改判/导出
 ```
 
-布局：三栏网格 `300px minmax(0, 1fr) 300px`，上传入口集成在左栏顶部。
-
-## 设计令牌
+## 设计系统
 
 | 属性 | 值 |
-|------|-----|
-| 画布背景 | `#F7F7F3` |
-| 表面颜色 | `#FFFFFF` |
-| 正文颜色 | `#1E2422` |
-| 辅助文字 | `#68716D` |
-| 主色（青绿） | `#39766A` |
-| 警告色（橙） | `#C26E1A` |
-| 危险色（红） | `#C0392B` |
+|---|---|
+| 画布 | `#F7F7F3` 暖白 |
+| 正文 | `#1E2422` 石墨 |
+| 主色 | `#39766A` 低饱和青绿 |
+| 警告 | `#C26E1A` |
+| 危险 | `#C0392B` |
 | 主圆角 | 17px |
-| 动画时长 | 180ms |
+| 动画 | 180ms |
 
-## 四种页面状态
+所有动画在 160–240ms 的克制范围，并由 `prefers-reduced-motion` 完整关闭。
+`[hidden] { display: none !important; }` 位于基础 reset，避免状态容器被布局规则
+重新显示（BUG-001）。
 
-1. **空状态** - 首次进入，显示上传引导和空图示。
-2. **加载中** - 选中任务后显示旋转指示器。
-3. **失败态** - 展示后端 `error.message`，提供"重新分析"按钮。
-4. **完成态** - 显示原素材、检测汇总、证据帧网格和审核面板。
+## API 与轮询
 
-## 状态转换流程
+- 所有响应检查 `ok === true`，失败优先显示 `error.message`。
+- 上传使用 multipart；创建成功后自动发起分析。
+- 使用递归 `setTimeout` 每秒轮询，切换任务、终态、卸载和网络错误都会清理
+  timer 与 `AbortController`。
+- 不伪造百分比；瞬时 running 只显示真实状态。
+- `model_ready=false` 时不发送分析请求。
+- 人工改判要求非空负责人，保留自动结论。
+- JSON 使用 Blob 下载；CSV/ZIP 使用经过同源与路径前缀校验的产物 URL。
 
-```
-空 → 上传 → created → POST /analyze → queued → 轮询 → running → completed/failed
-                                                                   ↓
-                                                             展示报告/错误
-```
-
-## API 对接
-
-固定消费 11 个端点，全部检查 `ok === true`，失败优先展示 `error.message`：
-
-- `GET /api/health` — 服务、模型、FFmpeg 状态
-- `GET /api/stats` — 审核统计
-- `POST /api/jobs` — 创建任务（multipart/form-data）
-- `POST /api/jobs/<id>/analyze` — 启动分析
-- `GET /api/jobs` — 任务列表（支持 `?status=` 筛选）
-- `GET /api/jobs/<id>` — 任务详情
-- `DELETE /api/jobs/<id>` — 删除任务
-- `PATCH /api/jobs/<id>/review` — 人工改判
-- `GET /api/jobs/<id>/report` — 获取分析报告
-- `GET /api/jobs/<id>/artifacts/<filename>` — 产物下载
-
-## 下载安全
-
-- CSV/ZIP 直接使用 `report.downloads` 中的完整 API URL
-- 下载前验证 URL：同源检测 + pathname 前缀校验
-- 非法 URL 显示中文错误，不发起导航
-- JSON 报告序列化为 Blob 下载
-
-## 轮询机制
-
-- 使用递归 `setTimeout`（非 `setInterval`），上次请求完成后才排定下次
-- `AbortController` 传入 fetch signal
-- 切换任务、终态到达、网络错误时 `clearTimeout` + `abort`
-- `fetchJob`/`fetchReport` 只返回数据，不直接写全局 state
-- 调用者通过 `selectedJobId` token 确认后才写入
-
-## model_ready 处理
-
-- 按钮动态文案：模型就绪显示"创建并分析"，未就绪显示"仅创建任务"
-- health 未加载或 model_ready=false 时禁止发送 analyze 请求
-- created/failed 任务的"开始分析/重新分析"按钮同步禁用
-- `updateUploadButton()` 同时检查项目名和文件状态
-- 创建任务后若模型未就绪，仅创建记录不触发分析
-
-## 数值解析
-
-- 使用 `parseNumeric(value, default)` 函数
-- 空字符串使用默认值，`Number.isFinite()` 校验
-- 合法 0 保留，不用 `|| default` 短路
-
-## 响应式设计
+## 响应式与可访问性
 
 | 视口 | 布局 |
-|------|------|
-| >=1060px | 三栏 300px + 1fr + 300px |
-| 860-1060px | 窄三栏 260px + 1fr + 260px |
-| 500-860px | 单列 |
+|---|---|
+| ≥1060px | 300px + 1fr + 300px |
+| 860–1059px | 260px + 1fr + 260px |
+| 500–859px | 单列 |
 | <500px | 单列紧凑 |
 
-窄屏无横向滚动，`document.documentElement.scrollWidth === document.documentElement.clientWidth`。
+最终 390×844 真实截图显示单列布局，无横向溢出。页面使用语义
+`main/header/nav/aside/section/fieldset`、ARIA live region、明确焦点环、
+带标签的删除按钮和原生确认对话框。
 
-## 可访问性
+## 最终截图
 
-- 语义 HTML（main, header, nav, aside, section, fieldset）
-- aria-label 标注所有交互区域
-- role="status" / aria-live="polite" 用于动态内容
-- 显式 `:focus-visible` 焦点环
-- `<dialog>` + `aria-modal="true"` 确认框
-- 删除按钮带 `aria-label="删除任务 <名称>"`
-- 键盘 Enter/Space 在删除按钮上打开确认框，不切换任务
-- `prefers-reduced-motion` 禁用所有动画
+15 张发布门禁截图与一张移动端截图已存入 `screenshots/`。其中：
 
-## 状态徽章
+- `analysis_in_progress.png`：真实视频 running；
+- `result_pass/review/reject.png`：真实模型三档结论；
+- `manual_review.png`：负责人李佳铭的真实改判；
+- `error_unsupported.png`：真实 `.bmp` 错误；
+- `mobile_390x844.png`：真实 390×844 视口。
 
-- 使用 CSS class（`.status-running`, `.status-created`）替代 inline style
-- 切换状态时 `removeAttribute("style")` 清除旧行内样式
-
-## 截图清单
-
-| 文件 | 视口 | 状态 |
-|------|------|------|
-| `screenshots/empty_1366x768.png` | 1366×768 | 空状态 / model_ready=false |
-| `screenshots/running_1366x768.png` | 1366×768 | running |
-| `screenshots/failed_1366x768.png` | 1366×768 | failed |
-| `screenshots/completed_1366x768.png` | 1366×768 | completed |
-| `screenshots/review_1366x768.png` | 1366×768 | 人工改判 |
-| `screenshots/mobile_390x844.png` | 390×844 | 窄屏单列 |
-
-> 截图待后端 API 全部就绪后从真实运行页面截取。
+完整映射见 `docs/SCREENSHOT_INDEX.md`。
