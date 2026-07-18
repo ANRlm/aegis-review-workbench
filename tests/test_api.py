@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
+import sys
 from PIL import Image
 from aegis_review import create_app as _create_app
 from aegis_review.config import AppConfig
@@ -284,3 +285,92 @@ class TestFullHttpContract:
         if outputs.exists():
             children = list(outputs.iterdir())
             assert not children
+
+class TestJobSerialization:
+    def test_list_response_no_asset_file(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        job = dict(_SAMPLE_JOB)
+        service.list_jobs.return_value = [job]
+        resp = app.test_client().get('/api/jobs')
+        data = resp.get_json()
+        assert 'asset_file' not in data['jobs'][0]
+        assert 'asset_url' in data['jobs'][0]
+    def test_report_downloads_urls(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        report = dict(_SAMPLE_REPORT, downloads={'csv': 'detections.csv', 'zip': 'audit_package.zip'})
+        service.get_report.return_value = report
+        resp = app.test_client().get('/api/jobs/20260718_101530_a1b2c3d4/report')
+        dl = resp.get_json()['report']['downloads']
+        assert dl['csv'].endswith('/artifacts/detections.csv')
+        assert dl['zip'].endswith('/artifacts/audit_package.zip')
+    def test_original_report_untouched(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        original = dict(_SAMPLE_REPORT, downloads={'csv': 'detections.csv'})
+        service.get_report.return_value = original
+        app.test_client().get('/api/jobs/20260718_101530_a1b2c3d4/report')
+        assert original['downloads']['csv'] == 'detections.csv'
+class TestUploadBoundaries:
+    def test_dual_asset_rejected(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        png = _png_bytes()
+        data = {'project_name': 'test', 'asset': [(BytesIO(png), 'a.png'), (BytesIO(png), 'b.png')]}
+        resp = app.test_client().post('/api/jobs', data=data, content_type='multipart/form-data')
+        assert resp.status_code == 400
+        service.create_job.assert_not_called()
+    def test_reviewer_empty_rejected(self, tmp_path):
+        app, _ = _mock_app(tmp_path)
+        resp = app.test_client().patch('/api/jobs/20260718_101530_a1b2c3d4/review', json={'decision': 'pass', 'reviewer': ''})
+        assert resp.status_code == 400
+    def test_reviewer_40_accepted(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        service.review_job.return_value = dict(_SAMPLE_REPORT, final_decision='pass', reviewer='a'*40)
+        resp = app.test_client().patch('/api/jobs/20260718_101530_a1b2c3d4/review', json={'decision': 'pass', 'reviewer': 'a'*40})
+        assert resp.status_code == 200
+    def test_reviewer_41_rejected(self, tmp_path):
+        app, _ = _mock_app(tmp_path)
+        resp = app.test_client().patch('/api/jobs/20260718_101530_a1b2c3d4/review', json={'decision': 'pass', 'reviewer': 'a'*41})
+        assert resp.status_code == 400
+    def test_unknown_exception_returns_500(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        service.get_job.side_effect = RuntimeError('secret /Users/example/.ssh/key.pem')
+        resp = app.test_client().get('/api/jobs/20260718_101530_a1b2c3d4')
+        assert resp.status_code == 500
+        payload = resp.get_json()
+        assert 'secret' not in str(payload) and 'Users' not in str(payload)
+class TestRealService:
+    @pytest.mark.skipif(sys.platform == "win32", reason="storage.py fsync PermissionError on Windows")
+    def test_create_and_retrieve_png(self, tmp_path):
+        from aegis_review.storage import JobStorage
+        from aegis_review.service import JobService, UnavailableAnalyzer
+        storage = JobStorage(tmp_path / 'outputs', 200 * 1024 * 1024)
+        service = JobService(storage, UnavailableAnalyzer())
+        config = AppConfig(project_root=tmp_path, testing=True)
+        app = _create_app(config, job_service=service)
+        png = _png_bytes()
+        data = {'project_name': 'test', 'asset': (BytesIO(png), 'test.png')}
+        resp = app.test_client().post('/api/jobs', data=data, content_type='multipart/form-data')
+        assert resp.status_code == 201
+        job_id = resp.get_json()['job']['job_id']
+        assert (tmp_path / 'outputs' / job_id / 'job.json').is_file()
+        assert (tmp_path / 'outputs' / job_id / 'input' / 'original.png').is_file()
+        service.shutdown(wait=True)
+    def test_not_found_404_with_real_service(self, tmp_path):
+        app = _real_app(tmp_path)
+        resp = app.test_client().get('/api/jobs/20260718_101530_deadbeef')
+        assert resp.status_code == 404
+class TestArtifactDisposition:
+    def test_png_inline(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        p = tmp_path / 'test.png'
+        p.write_bytes(_png_bytes())
+        service.resolve_artifact.return_value = p
+        resp = app.test_client().get('/api/jobs/id/artifacts/test.png')
+        assert resp.headers.get('Content-Disposition', '').startswith('inline')
+    def test_json_attachment(self, tmp_path):
+        app, service = _mock_app(tmp_path)
+        p = tmp_path / 'test.json'
+        p.write_text('{}')
+        service.resolve_artifact.return_value = p
+        resp = app.test_client().get('/api/jobs/id/artifacts/test.json')
+        cd = resp.headers.get('Content-Disposition', '')
+        assert 'attachment' in cd
