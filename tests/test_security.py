@@ -306,61 +306,92 @@ def test_a10_artifact_traversal_returns_404(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# A11  符号链接逃逸
+# A11a  符号链接 – 服务层 resolve_artifact
 # ---------------------------------------------------------------------------
-def test_a11_service_layer_symlink_protection(tmp_path: Path) -> None:
-    """A11a: leader JobStorage rejects symlink escapes when writing records.
-
-    The storage layer validates that job paths resolve within outputs/.
-    HTTP artifact route (A11b) is pending backend merge.
-    """
+def test_a11a_resolve_artifact_rejects_symlink_escape(tmp_path: Path) -> None:
+    """A11a: JobService.resolve_artifact rejects a whitelisted file that is a symlink."""
     from aegis_review.config import AppConfig
     from aegis_review.domain import AuditSettings, JobRecord, JobStatus, MediaType
-    from aegis_review.storage import JobStorage
+    from aegis_review.service import ArtifactNotFoundError, JobService, UnavailableAnalyzer
+    from aegis_review.storage import JobStorage, atomic_write_json
 
-    outputs = tmp_path / "outputs"
-    job_dir = outputs / "20260718_101530_deadbeef"
+    cfg = AppConfig(project_root=tmp_path, testing=True)
+    job_dir = cfg.outputs_dir / "20260718_101530_deadbeef"
     result_dir = job_dir / "result"
-    result_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir = job_dir / "evidence"
+    input_dir = job_dir / "input"
+    for d in (job_dir, result_dir, evidence_dir, input_dir):
+        d.mkdir(parents=True, exist_ok=True)
 
     target = tmp_path / "secret_data.txt"
     target.write_text("secret", encoding="utf-8")
 
+    # Create symlink: evidence frame points outside
     try:
-        (result_dir / "naughty_link.json").symlink_to(target)
+        (evidence_dir / "naughty_frame.jpg").symlink_to(target)
     except OSError:
         pytest.skip(SKIP_NOT_WINDOWS_SYMLINK)
 
     assert target.read_text() == "secret"
 
-    # The storage layer should protect against writing records that
-    # would escape outputs/.  Create a valid record at the safe path.
-    cfg = AppConfig(project_root=tmp_path, testing=True)
+    # Write valid job.json with completed status
+    payload = {
+        "job_id": "20260718_101530_deadbeef",
+        "project_name": "symlink test",
+        "asset_name": "test.png",
+        "asset_type": "image",
+        "asset_file": "original.png",
+        "status": "completed",
+        "created_at": "2026-07-18T10:15:30+08:00",
+        "started_at": "2026-07-18T10:15:31+08:00",
+        "completed_at": "2026-07-18T10:15:32+08:00",
+        "settings": AuditSettings().to_dict(),
+        "result_file": "analysis_report.json",
+        "error": None,
+    }
+    atomic_write_json(job_dir / "job.json", payload)
+
+    # Write a real original.png (1px PNG)
+    import struct, zlib
+    def _tiny_png() -> bytes:
+        sig = b"\x89PNG\r\n\x1a\n"
+        ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+        ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data)
+        ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
+        idat = b"\x00\x00\x00\x08IDAT\x78\xda\x62\x60\x60\x60\x00\x00\x00\x04\x00\x01\x27\x34\x01\x64"
+        iend = b"\x00\x00\x00\x00IEND\xae\x42\x60\x82"
+        return sig + ihdr + idat + iend
+    (input_dir / "original.png").write_bytes(_tiny_png())
+
+    # Write report with naughty_frame.jpg in evidence_frames whitelist
+    import json as _json
+    report = {
+        "job_id": "20260718_101530_deadbeef",
+        "detections": [],
+        "evidence_frames": ["naughty_frame.jpg"],
+        "rules": {},
+        "auto_decision": "pass",
+        "final_decision": "pass",
+        "reviewer": None,
+        "note": None,
+        "downloads": {"csv": "detections.csv", "zip": "audit_package.zip"},
+    }
+    atomic_write_json(result_dir / "analysis_report.json", report)
+    # Create dummy artifacts to satisfy downloads whitelist
+    (result_dir / "detections.csv").write_text("frame_index\n", encoding="utf-8")
+    (result_dir / "audit_package.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
     storage = JobStorage(cfg.outputs_dir, cfg.max_content_length)
-    record = JobRecord(
-        job_id="20260718_101530_deadbeef",
-        project_name="symlink test",
-        asset_name="test.png",
-        asset_type=MediaType.IMAGE,
-        asset_file="original.png",
-        status=JobStatus.COMPLETED,
-        created_at="2026-07-18T10:15:30+08:00",
-        started_at=None,
-        completed_at=None,
-        settings=AuditSettings().to_dict(),
-        result_file="analysis_report.json",
-        error=None,
-    )
-    # Write works because the job_dir resolves inside outputs/
-    storage.write(record)
+    svc = JobService(storage, UnavailableAnalyzer())
 
-    # Reading back confirms the record is inside outputs/
-    recovered = storage.read("20260718_101530_deadbeef")
-    assert recovered.job_id == "20260718_101530_deadbeef"
+    # resolve_artifact for the symlinked evidence frame MUST raise
+    with pytest.raises(ArtifactNotFoundError):
+        svc.resolve_artifact("20260718_101530_deadbeef", "naughty_frame.jpg")
 
-    # Note: A11b (HTTP artifact route traversal) is pending backend merge.
-    # The HTTP route should reject requests for the symlinked artifact
-    # while allowing legitimate records in the artifact whitelist.
+    # External file must still be intact
+    assert target.read_text() == "secret"
+
+    svc.shutdown(wait=True)
 
 
 # ---------------------------------------------------------------------------
