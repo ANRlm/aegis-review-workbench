@@ -32,7 +32,7 @@ docker compose build
 → success
 
 docker compose run --rm app pytest -q -rs
-→ 361 passed, 9 skipped in 15.88s
+→ 364 passed, 9 skipped in 17.15s
 
 docker compose up -d
 curl --fail http://127.0.0.1:7880/api/health
