@@ -7,12 +7,29 @@ from flask import Flask, render_template, request
 from .api import api
 from .config import AppConfig
 from .errors import error_response
+from .service import JobService, UnavailableAnalyzer
+from .storage import JobStorage
 
 
-def create_app(config: AppConfig | None = None) -> Flask:
+def create_app(
+    config: AppConfig | None = None,
+    *,
+    job_service: JobService | None = None,
+) -> Flask:
     """Create the Flask app from an explicit, testable project configuration."""
     app_config = config or AppConfig()
     app_config.ensure_directories()
+    service = (
+        job_service
+        if job_service is not None
+        else JobService(
+            storage=JobStorage(
+                app_config.outputs_dir,
+                app_config.max_content_length,
+            ),
+            analyzer=UnavailableAnalyzer(),
+        )
+    )
 
     app = Flask(
         __name__,
@@ -25,6 +42,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         TESTING=app_config.testing,
         JSON_AS_ASCII=False,
     )
+    app.extensions["aegis_job_service"] = service
     app.register_blueprint(api)
 
     @app.get("/")

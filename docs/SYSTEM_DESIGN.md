@@ -31,6 +31,17 @@ Flask API ── JobService ── ThreadPoolExecutor(max_workers=1)
 | `cv/` | 采样、检测、规则、证据和产物 | HTTP 与任务列表 |
 | `templates/static` | 工作台与 API 交互 | 自行推导后端状态 |
 
+应用工厂只创建一个 `JobService`，启动时完成遗留任务恢复，并将实例注册到：
+
+```python
+app.extensions["aegis_job_service"]
+```
+
+后端路由只能消费该实例，不得在 `api.py` 中创建第二个线程池或复制状态机。
+组长核心通过已绑定检测器的 `AnalysisRunner` 调用 CV 管线；CV 合入前使用
+`UnavailableAnalyzer`，使 Flask 可以启动而分析任务留下错误为
+“CV 分析组件尚未就绪。”的可重试失败记录。
+
 ## 3. 数据流
 
 ### 创建与分析
@@ -47,14 +58,19 @@ Flask API ── JobService ── ThreadPoolExecutor(max_workers=1)
 
 前端每秒查询任务详情；到达 `completed/failed` 后停止轮询。人工改判只修改报告中的 `final_decision/reviewer/note`，不改变任务状态或覆盖 `auto_decision`。
 
+任务详情中的 `asset_url` 由后端根据 `asset_file` 派生，并复用安全产物接口
+读取 `input/original.<ext>`；客户端不能提交或拼接磁盘路径。
+
 ## 4. 并发与持久化
 
 - 线程池固定一个 worker，避免 CPU 上同时加载多次 YOLO。
 - 每个任务一个内存锁，修改前重新读取磁盘状态。
 - JSON 先写同目录 `.tmp`，`flush + fsync` 后原子替换。
+- 实际临时文件使用不可预测的同目录随机名称，替换失败时保留旧 JSON 并清理临时文件。
 - 列表接口从磁盘读取，因此刷新或重启后仍可打开历史任务。
 - 启动时扫描 `queued/running`，将其标记为 `failed`，错误为“服务中断，任务未完成”；失败任务允许重新进入 `queued`。
 - 正在 `queued/running` 的任务不能删除。
+- `stats.total` 统计所有状态任务；三档结论只读取 completed 报告，failed 单列。
 
 ## 5. 文件安全
 
