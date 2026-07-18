@@ -45,6 +45,14 @@ class AnalysisContractError(JobServiceError):
     """Raised when an analyzer returns a report that violates the contract."""
 
 
+class JobBusyError(JobServiceError):
+    """Raised when a running or queued job cannot be deleted."""
+
+
+class ArtifactNotFoundError(JobServiceError, FileNotFoundError):
+    """Raised when an artifact name is unsafe, unlisted, or unavailable."""
+
+
 class InvalidStatusTransition(JobServiceError, ValueError):
     """Raised when a job tries to skip or reverse its lifecycle."""
 
@@ -91,6 +99,7 @@ class JobService:
         self._clock = clock or (lambda: datetime.now().astimezone())
         self._locks: dict[str, RLock] = {}
         self._locks_guard = Lock()
+        self.recover_interrupted()
 
     def _job_lock(self, job_id: str) -> RLock:
         with self._locks_guard:
@@ -256,10 +265,159 @@ class JobService:
                 raise InvalidStatusTransition(
                     "only completed jobs have reports"
                 )
+            return self._load_report(record).to_dict()
+
+    def recover_interrupted(self) -> None:
+        for visible_record in self.storage.list_records():
+            if visible_record.status not in {
+                JobStatus.QUEUED,
+                JobStatus.RUNNING,
+            }:
+                continue
+            with self._job_lock(visible_record.job_id):
+                record = self.storage.read(visible_record.job_id)
+                if record.status not in {
+                    JobStatus.QUEUED,
+                    JobStatus.RUNNING,
+                }:
+                    continue
+                validate_transition(record.status, JobStatus.FAILED)
+                record.status = JobStatus.FAILED
+                record.completed_at = self._now_iso()
+                record.result_file = None
+                record.error = "服务中断，任务未完成。"
+                self.storage.write(record)
+
+    def delete_job(self, job_id: str) -> None:
+        with self._job_lock(job_id):
+            record = self.storage.read(job_id)
+            if record.status in {JobStatus.QUEUED, JobStatus.RUNNING}:
+                raise JobBusyError("任务正在处理，暂时不能删除。")
+            self.storage.delete(job_id)
+
+    def review_job(
+        self,
+        job_id: str,
+        decision: AuditDecision | str,
+        reviewer: str,
+        note: str | None,
+    ) -> dict[str, Any]:
+        try:
+            final_decision = AuditDecision(decision)
+        except ValueError as error:
+            raise ValueError("decision must be pass, review, or reject") from error
+        if not isinstance(reviewer, str) or not 1 <= len(reviewer.strip()) <= 40:
+            raise ValueError("reviewer must contain between 1 and 40 characters")
+        normalized_note: str | None
+        if note is None:
+            normalized_note = None
+        elif not isinstance(note, str) or len(note.strip()) > 500:
+            raise ValueError("note must contain no more than 500 characters")
+        else:
+            normalized_note = note.strip() or None
+
+        with self._job_lock(job_id):
+            record = self.storage.read(job_id)
+            if record.status is not JobStatus.COMPLETED:
+                raise InvalidStatusTransition(
+                    "only completed jobs can be reviewed"
+                )
+            report = self._load_report(record)
+            report.final_decision = final_decision
+            report.reviewer = reviewer.strip()
+            report.note = normalized_note
+            report_path = self._known_file(
+                self.storage.paths(job_id).result_dir / record.result_file,
+                self.storage.paths(job_id).root,
+            )
+            atomic_write_json(report_path, report.to_dict())
+            return report.to_dict()
+
+    def resolve_artifact(self, job_id: str, filename: str) -> Path:
+        if not self._is_safe_basename(filename):
+            raise ArtifactNotFoundError("任务产物不存在。")
+        with self._job_lock(job_id):
+            record = self.storage.read(job_id)
             paths = self.storage.paths(job_id)
-            return AnalysisReport.from_dict(
-                read_json(paths.result_dir / "analysis_report.json")
-            ).to_dict()
+            allowed: dict[str, Path] = {
+                record.asset_file: paths.input_dir / record.asset_file,
+            }
+            if record.status is JobStatus.COMPLETED:
+                report = self._load_report(record)
+                if record.result_file is not None:
+                    allowed[record.result_file] = (
+                        paths.result_dir / record.result_file
+                    )
+                for evidence_name in report.evidence_frames:
+                    if not self._is_safe_basename(evidence_name):
+                        raise ArtifactNotFoundError("证据文件名不安全。")
+                    allowed[evidence_name] = paths.evidence_dir / evidence_name
+                for download_name in report.downloads.values():
+                    if not self._is_safe_basename(download_name):
+                        raise ArtifactNotFoundError("下载文件名不安全。")
+                    allowed[download_name] = paths.result_dir / download_name
+            selected = allowed.get(filename)
+            if selected is None:
+                raise ArtifactNotFoundError("任务产物不存在。")
+            return self._known_file(selected, paths.root)
+
+    def stats(self) -> dict[str, int]:
+        records = self.storage.list_records()
+        result = {
+            "total": len(records),
+            "pass": 0,
+            "review": 0,
+            "reject": 0,
+            "failed": 0,
+        }
+        for record in records:
+            if record.status is JobStatus.FAILED:
+                result["failed"] += 1
+                continue
+            if record.status is not JobStatus.COMPLETED:
+                continue
+            report = self._load_report(record)
+            decision = report.final_decision or report.auto_decision
+            if decision is None:
+                raise AnalysisContractError("分析报告缺少审核结论。")
+            result[decision.value] += 1
+        return result
+
+    def _load_report(self, record: JobRecord) -> AnalysisReport:
+        if record.result_file is None:
+            raise AnalysisContractError("已完成任务缺少报告文件。")
+        paths = self.storage.paths(record.job_id)
+        report_path = self._known_file(
+            paths.result_dir / record.result_file,
+            paths.root,
+        )
+        try:
+            return AnalysisReport.from_dict(read_json(report_path))
+        except (OSError, ValueError) as error:
+            raise AnalysisContractError("分析报告无法读取。") from error
+
+    @staticmethod
+    def _is_safe_basename(filename: object) -> bool:
+        return (
+            isinstance(filename, str)
+            and bool(filename)
+            and filename not in {".", ".."}
+            and "/" not in filename
+            and "\\" not in filename
+            and not Path(filename).is_absolute()
+        )
+
+    @staticmethod
+    def _known_file(candidate: Path, job_root: Path) -> Path:
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ArtifactNotFoundError("任务产物不存在。")
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError as error:
+            raise ArtifactNotFoundError("任务产物不存在。") from error
+        if not resolved.is_relative_to(job_root.resolve()):
+            raise ArtifactNotFoundError("任务产物超出任务目录。")
+        return resolved
 
     def shutdown(self, wait: bool = True) -> None:
         self._executor.shutdown(wait=wait)
