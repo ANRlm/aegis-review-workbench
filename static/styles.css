@@ -30,6 +30,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   min-height: 100vh;
   margin: 0;
@@ -1076,11 +1080,7 @@ body {
 
 /* ---- Reduced Motion ---- */
 @media (prefers-reduced-motion: reduce) {
-[hidden] {
-  display: none !important;
-}
-
-*, *::before, *::after {
+  *, *::before, *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;

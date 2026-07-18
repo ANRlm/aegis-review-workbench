@@ -698,6 +698,19 @@ def test_css_hidden_attribute_must_use_display_none_important(
     assert "!important" in rule, "[hidden] must use !important to override display:flex"
 
 
+def test_css_hidden_rule_in_base_reset_not_inside_media_query(
+    styles_css: str,
+) -> None:
+    """[hidden] rule must be in base reset area, not gated behind a media query."""
+    first_media = styles_css.find("@media")
+    hidden_pos = styles_css.find("[hidden]")
+    assert hidden_pos != -1, "[hidden] must exist in CSS"
+    assert first_media == -1 or hidden_pos < first_media, (
+        "[hidden] must appear before the first @media block "
+        "(base reset area), not inside a media query"
+    )
+
+
 def test_css_evidence_states_do_not_conflict_with_hidden(
     styles_css: str,
 ) -> None:
