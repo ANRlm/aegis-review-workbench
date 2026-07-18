@@ -79,6 +79,19 @@ def validate_transition(current: JobStatus, target: JobStatus) -> None:
         )
 
 
+class UnavailableAnalyzer:
+    """Keep the service bootable until the CV branch provides a bound runner."""
+
+    def __call__(
+        self,
+        _input_path: Path,
+        _evidence_dir: Path,
+        _result_dir: Path,
+        _settings: AuditSettings,
+    ) -> AnalysisReport:
+        raise AnalysisContractError("CV 分析组件尚未就绪。")
+
+
 class JobService:
     """Coordinate durable job state without depending on Flask or Ultralytics."""
 
