@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="影鉴 Aegis Review 方向 A 智能数字媒体内容审核系统契约骨架"
+    >
+    <title>影鉴 Aegis Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">鉴</span>
+          <span>影鉴 Aegis Review</span>
+        </div>
+        <a class="health-link" href="/api/health">查看服务健康状态</a>
+      </header>
+
+      <section class="intro">
+        <h1>清晰、可追溯的智能内容审核。</h1>
+        <p>
+          当前仓库处于团队契约骨架阶段。健康检查、领域类型、状态流转与
+          JSON 持久化边界已经锁定；任务 API、CV 管线和三栏工作台将由五名成员
+          按各自任务书完成。
+        </p>
+      </section>
+
+      <section class="contract-grid" aria-label="团队实现边界">
+        <article class="contract-item">
+          <span>01 / API</span>
+          <h2>先返回任务，再后台分析</h2>
+          <p>固定 HTTP 状态、错误结构与 created 到 completed 的任务生命周期。</p>
+        </article>
+        <article class="contract-item">
+          <span>02 / CV</span>
+          <h2>检测、证据、规则可解释</h2>
+          <p>记录类别、置信度、边界框和证据帧，输出三档审核结论。</p>
+        </article>
+        <article class="contract-item">
+          <span>03 / REVIEW</span>
+          <h2>机器初筛，人工最终确认</h2>
+          <p>负责人可以改判并填写备注，报告能够重新读取和交付。</p>
+        </article>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </body>
+</html>

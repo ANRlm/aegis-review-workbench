@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+Flask==3.1.2
+numpy>=2.2,<3
+opencv-python-headless>=4.12,<5
+Pillow>=11,<13
+PyYAML>=6,<7
+torch==2.13.0+cpu; sys_platform == "linux"
+torch==2.13.0; sys_platform == "darwin"
+torchvision==0.28.0+cpu; sys_platform == "linux"
+torchvision==0.28.0; sys_platform == "darwin"
+ultralytics==8.4.92
+pytest>=8.4,<10

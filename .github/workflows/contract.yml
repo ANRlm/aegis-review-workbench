@@ -1,0 +1,28 @@
+name: contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install contract dependencies
+        run: python -m pip install Flask==3.1.2 "pytest>=8.4,<10"
+      - name: Verify contract scaffold
+        run: |
+          pytest -q tests/test_contract.py tests/test_scaffold_files.py
+          python -m py_compile app.py
+          node --check static/app.js
+          git diff --check

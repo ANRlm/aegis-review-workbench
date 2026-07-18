@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "7880:7880"
+    environment:
+      AEGIS_MODEL_PATH: /workspace/models/aegis_game_best.pt
+      YOLO_CONFIG_DIR: /tmp/ultralytics
+    volumes:
+      - ./outputs:/workspace/outputs
+      - ./models:/workspace/models:ro
+    restart: unless-stopped

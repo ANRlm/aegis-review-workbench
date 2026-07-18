@@ -1,0 +1,10 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.py[cod]
+.DS_Store
+outputs/*
+!outputs/.gitkeep
+training_runs
+screenshots
