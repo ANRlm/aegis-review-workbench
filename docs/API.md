@@ -239,3 +239,31 @@ HTTP 200：
 | 409 | 状态冲突或任务运行中 |
 | 413 | 超过 200MB |
 | 500 | 未预期服务错误；任务处理异常应优先写为 `failed` |
+## 5. 错误码与 HTTP 状态映射
+
+| 错误码 | HTTP 状态 | 说明 |
+|---|---:|---|
+| `invalid_request` | 400 | 请求参数错误 |
+| `invalid_asset` | 400 | 素材文件格式不支持或无法解码 |
+| `invalid_settings` | 400 | 审核规则参数错误 |
+| `job_not_found` | 404 | 任务编号不存在 |
+| `artifact_not_found` | 404 | 产物文件不存在或超出任务目录 |
+| `not_found` | 404 | 请求的接口不存在 |
+| `payload_too_large` | 413 | 上传文件超过 200MB 限制 |
+| `invalid_status` | 409 | 当前任务状态不允许该操作 |
+| `job_busy` | 409 | 任务正在排队或执行，暂时不能删除 |
+| `internal_error` | 500 | 服务器内部错误，不暴露堆栈 |
+
+所有错误响应结构：
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "machine_readable_code",
+    "message": "用户可读中文说明"
+  }
+}
+```
+
+异常不会导致 Flask 进程退出，响应中不包含堆栈、绝对路径或模型内部对象。
