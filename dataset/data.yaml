@@ -1,0 +1,10 @@
+path: dataset
+train: images/train
+val: images/val
+
+names:
+  0: player
+  1: enemy
+  2: energy_orb
+  3: treasure_chest
+  4: health_potion
