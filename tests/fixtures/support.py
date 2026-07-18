@@ -264,8 +264,11 @@ BINARY_EXTENSIONS = frozenset({".pt", ".zip", ".png", ".jpg", ".jpeg", ".gif", "
 
 IGNORED_FILES = frozenset({"poetry.lock", "package-lock.json", "yarn.lock"})
 
-# Whispered docs/tests paths where intentional absolute paths are allowed
-_PRIVACY_WHITELIST_PREFIXES = ("docs/", "tests/")
+# File-level whitelist for privacy paths (exact relative paths).
+# These specific files intentionally contain example absolute paths for testing.
+_PRIVACY_PATH_WHITELIST: frozenset[str] = frozenset({
+    "tests/test_service.py",
+})
 
 
 def git_available() -> bool:
@@ -338,7 +341,7 @@ def hygiene_scan(project_root: Path) -> dict[str, str]:
             m = re.search(pattern, text)
             if m:
                 rel = str(file_path.relative_to(project_root)).replace("\\", "/")
-                if not any(rel.startswith(p) for p in _PRIVACY_WHITELIST_PREFIXES):
+                if rel not in _PRIVACY_PATH_WHITELIST:
                     findings[rel] = f"absolute path: {m.group()}"
 
     return findings
