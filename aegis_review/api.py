@@ -92,8 +92,6 @@ def create_job():
     config: AppConfig = current_app.config["AEGIS_CONFIG"]
     if size > config.max_content_length:
         return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
-    stream.seek(0)
-    config: AppConfig = current_app.config["AEGIS_CONFIG"]
     if media_type is MediaType.IMAGE:
         if not decode_image_stream(stream):
             return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
@@ -103,7 +101,6 @@ def create_job():
                 return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
         except MediaTooLargeError:
             return error_response("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002", 413)
-            return error_response("invalid_asset", "\u4e0a\u4f20\u6587\u4ef6\u65e0\u6cd5\u89e3\u7801\u3002", 400)
     settings_raw = request.form.get("settings")
     try:
         settings = parse_settings(settings_raw)

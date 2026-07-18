@@ -14,17 +14,27 @@ def error_response(code: str, message: str, status: int):
 
 
 def register_api_error_handlers(api_blueprint):
-    """Register exception-to-JSON-error mappings on the API blueprint.
-
-    More specific handlers are registered before generic ones so Flask's
-    MRO-based lookup picks the correct handler for each exception type.
-    """
+    """Register exception-to-JSON-error mappings on the API blueprint."""
+    from werkzeug.exceptions import BadRequest, HTTPException, RequestEntityTooLarge
     from .service import (
         ArtifactNotFoundError, InvalidStatusTransition,
         JobBusyError, JobExecutionError, JobServiceError,
     )
     from .storage import AssetTooLargeError, InvalidJobIdError, JobNotFoundError
     from .validation import MediaTooLargeError, ValidationError
+
+    # -- Werkzeug HTTP exceptions (must come before broad Exception handler) --
+
+    @api_blueprint.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        code = error.code if hasattr(error, "code") else 500
+        mapping = {
+            400: ("invalid_request", "\u8bf7\u6c42\u53c2\u6570\u9519\u8bef\u3002"),
+            413: ("payload_too_large", "\u4e0a\u4f20\u6587\u4ef6\u4e0d\u80fd\u8d85\u8fc7 200MB\u3002"),
+        }
+        if code in mapping:
+            return error_response(*mapping[code], code)
+        raise error  # let app-level handlers (404, etc.) or Flask default decide
 
     # -- Service exceptions --
 
@@ -78,13 +88,10 @@ def register_api_error_handlers(api_blueprint):
     def handle_value_error(error):
         return error_response("invalid_request", str(error), 400)
 
-    # -- Catch-all (must be last) --
+    # -- Catch-all (non-HTTP only) --
 
     @api_blueprint.errorhandler(Exception)
     def handle_unknown_exception(error):
-        from werkzeug.exceptions import HTTPException
-        if isinstance(error, HTTPException):
-            raise error
         from flask import current_app
         current_app.logger.exception("Unhandled exception: %s", error)
         return error_response("internal_error", "\u670d\u52a1\u5668\u5185\u90e8\u9519\u8bef\u3002", 500)
