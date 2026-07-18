@@ -239,6 +239,42 @@ def test_d8_deterministic_zip_build_is_stable(tmp_path: Path) -> None:
             for n in zf.namelist():
                 assert ".." not in n and not n.startswith("/") and "last.pt" not in n
 
+
+def test_d8_submission_archive_extracts_to_directly_runnable_named_project(
+    tmp_path: Path,
+) -> None:
+    mod = _pr_module()
+    archive, _sha = mod._build_archive(tmp_path)
+    project_root = f"{mod._extract_surname()}_A_day08/"
+
+    with zipfile.ZipFile(archive) as zf:
+        names = set(zf.namelist())
+        readme = zf.read(f"{project_root}README.md").decode("utf-8")
+
+    assert names
+    assert all(name.startswith(project_root) for name in names)
+    assert f"{project_root}README.md" in names
+    assert f"{project_root}requirements.txt" in names
+    assert f"{project_root}app.py" in names
+    assert f"{project_root}demo/demo_script.md" in names
+    assert any(
+        name.startswith(f"{project_root}outputs/")
+        and name.endswith("/input/original.jpg")
+        for name in names
+    )
+    assert any(
+        name.startswith(f"{project_root}outputs/")
+        and name.endswith("/input/original.mp4")
+        for name in names
+    )
+    assert not any(
+        name.startswith(f"{project_root}validation_outputs/")
+        for name in names
+    )
+    assert "cd 李_A_day08" in readme
+    assert "conda activate yolo" in readme
+    assert "python app.py --host 127.0.0.1 --port 7880" in readme
+
 ###############################################################################
 # D9  Hygiene regression (git‑dependent; skip in container)
 ###############################################################################
