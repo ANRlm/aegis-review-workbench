@@ -60,6 +60,8 @@
     dom.evidenceFrames = document.getElementById("evidence-frames");
     dom.framesGrid = document.getElementById("frames-grid");
     dom.reviewPlaceholder = document.getElementById("review-placeholder");
+    dom.ruleSnapshot = document.getElementById("rule-snapshot");
+    dom.ruleList = document.getElementById("rule-list");
     dom.reviewContent = document.getElementById("review-content");
     dom.reviewAutoDecision = document.getElementById("review-auto-decision");
     dom.reviewFinalDecision = document.getElementById("review-final-decision");
@@ -145,12 +147,14 @@
 
   function fetchJob(jobId) {
     return apiFetch("/jobs/" + encodeURIComponent(jobId)).then(function (data) {
-      return data.job || data;
+      if (!data.job) throw new Error("响应格式不符合接口契约。");
+      return data.job;
     });
   }
 
   function fetchReport(jobId) {
     return apiFetch("/jobs/" + encodeURIComponent(jobId) + "/report").then(function (data) {
+      if (!data.report) throw new Error("响应格式不符合接口契约。");
       return data.report;
     });
   }
@@ -404,6 +408,7 @@
   /* ---- Review Panel ---- */
   function renderReviewPanel() {
     if (!state.selectedJob) { dom.reviewPlaceholder.hidden = false; dom.reviewContent.hidden = true; dom.downloadSection.hidden = true; return; }
+    renderRuleSnapshot(state.selectedJob);
     var job = state.selectedJob;
     if (job.status !== "completed") { dom.reviewPlaceholder.hidden = false; dom.reviewContent.hidden = true; dom.downloadSection.hidden = true; return; }
     dom.reviewPlaceholder.hidden = true;
@@ -427,6 +432,20 @@
     }
   }
 
+  /* ---- Rule Snapshot ---- */
+  function renderRuleSnapshot(job) {
+    if (!dom.ruleSnapshot) return;
+    if (!job || !job.settings) { dom.ruleSnapshot.hidden = true; return; }
+    dom.ruleSnapshot.hidden = false;
+    var s = job.settings;
+    var risk = s.risk_classes || [];
+    dom.ruleList.innerHTML =
+      '<div class="rule-item"><span class="rule-key">风险类别</span><span class="rule-val">' + escapeHtml(risk.join(", ") || "-") + '</span></div>' +
+      '<div class="rule-item"><span class="rule-key">不通过阈值</span><span class="rule-val">' + escapeHtml(String(s.reject_confidence != null ? s.reject_confidence : "-")) + '</span></div>' +
+      '<div class="rule-item"><span class="rule-key">待复核阈值</span><span class="rule-val">' + escapeHtml(String(s.review_confidence != null ? s.review_confidence : "-")) + '</span></div>' +
+      '<div class="rule-item"><span class="rule-key">推理阈值</span><span class="rule-val">' + escapeHtml(String(s.inference_confidence != null ? s.inference_confidence : "-")) + '</span></div>';
+  }
+
   /* ---- Job Selection & Polling ---- */
   function selectJob(jobId) {
     cancelPolling();
@@ -442,6 +461,7 @@
     fetchJob(jobId).then(function (job) {
       if (state.selectedJobId !== jobId) return;
       state.selectedJob = job;
+      renderRuleSnapshot(job);
       var status = job.status;
       if (status === "completed") {
         return fetchReport(jobId).then(function (report) {
@@ -482,9 +502,11 @@
       state.pollTimeout = null;
       if (state.selectedJobId !== jobId) return;
       apiFetch("/jobs/" + encodeURIComponent(jobId), { signal: abort.signal }).then(function (data) {
-        var job = data.job || data;
+        var job = data.job;
+        if (!job) throw new Error("响应格式不符合接口契约。");
         if (state.selectedJobId !== jobId) return;
         state.selectedJob = job;
+        renderRuleSnapshot(job);
         if (job.status === "completed") {
           return fetchReport(jobId).then(function (report) {
             if (state.selectedJobId !== jobId) return;
@@ -533,10 +555,7 @@
     var projectName = dom.projectName.value.trim();
     if (!projectName || projectName.length > 80) { dom.uploadError.textContent = "请输入 1–80 字的项目名称。"; return; }
     if (!state.selectedFile) { dom.uploadError.textContent = "请选择审核素材。"; return; }
-    if (!state.health || state.health.model_ready !== true) {
-      dom.uploadError.textContent = "模型未就绪，暂时无法创建并分析任务。";
-      return;
-    }
+    var modelReady = state.health && state.health.model_ready === true;
     dom.btnUpload.disabled = true;
     dom.uploadError.textContent = "";
     var formData = new FormData();
@@ -544,18 +563,23 @@
     formData.append("project_name", projectName);
     var settings = buildSettings();
     if (settings) {
-      try { formData.append("settings", JSON.stringify(settings)); } catch (_) { dom.uploadError.textContent = "规则设置格式不正确。"; dom.btnUpload.disabled = false; return; }
+      try { formData.append("settings", JSON.stringify(settings)); } catch (_) { dom.uploadError.textContent = "规则设置格式不正确。"; updateUploadButton(); return; }
     }
     createJob(formData).then(function (data) {
+      if (!data.job || !data.job.job_id) throw new Error("响应格式不符合接口契约。");
       var jobId = data.job.job_id;
-      return analyzeJob(jobId).then(function () { return jobId; });
-    }).then(function (jobId) {
+      if (modelReady) {
+        return analyzeJob(jobId).then(function () { return { jobId: jobId, analyzed: true }; });
+      }
+      return { jobId: jobId, analyzed: false };
+    }).then(function (result) {
       dom.uploadError.textContent = "";
       resetUploadForm();
-      return fetchJobs(dom.statusFilter.value || undefined).then(function () { return fetchStats(); }).then(function () { return jobId; });
-    }).then(function (jobId) {
-      selectJob(jobId);
-      toast("任务已创建，正在分析…");
+      return fetchJobs(dom.statusFilter.value || undefined).then(function () { return fetchStats(); }).then(function () { return result; });
+    }).then(function (result) {
+      selectJob(result.jobId);
+      if (result.analyzed) toast("任务已创建，正在分析…");
+      else toast("任务已创建，模型就绪后可重新分析。");
     }).catch(function (err) {
       dom.uploadError.textContent = err.message || "上传失败，请重试。";
       updateUploadButton();
@@ -617,7 +641,8 @@
     dom.reviewFeedback.textContent = "";
     dom.reviewFeedback.className = "review-feedback";
     reviewJobApi(jobId, { decision: decision, reviewer: reviewer, note: note }).then(function (data) {
-      state.report = data.report || data;
+      if (!data.report) throw new Error("响应格式不符合接口契约。");
+      state.report = data.report;
       renderReviewPanel();
       renderEvidenceContent(state.selectedJob);
       return fetchStats();
@@ -758,7 +783,8 @@
     var hasProject = !!dom.projectName.value.trim();
     var hasFile = !!state.selectedFile;
     var modelReady = state.health && state.health.model_ready === true;
-    dom.btnUpload.disabled = !(hasProject && hasFile && modelReady);
+    dom.btnUpload.disabled = !(hasProject && hasFile);
+    dom.btnUpload.textContent = modelReady ? "创建并分析" : "仅创建任务";
   }
 
   /* ---- Init ---- */

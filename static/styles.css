@@ -750,6 +750,40 @@ body {
   color: var(--ink);
 }
 
+/* ---- Rule Snapshot ---- */
+.rule-snapshot {
+  border: 1px solid var(--line-light);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rule-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.rule-key {
+  color: var(--muted);
+}
+
+.rule-val {
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Review Panel ---- */
 .review-panel {
   background: var(--surface);
