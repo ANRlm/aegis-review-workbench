@@ -113,8 +113,9 @@ def test_html_uses_defer_on_script(rendered_html: str) -> None:
 
 def test_html_has_aria_labels_for_accessibility(rendered_html: str) -> None:
     assert 'aria-label="审核统计"' in rendered_html
-    assert 'aria-label="任务历史"' in rendered_html
     assert 'aria-label="新建审核任务"' in rendered_html
+    assert 'aria-label="素材与证据"' in rendered_html
+    assert 'aria-label="审核操作"' in rendered_html
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +238,11 @@ def test_js_defines_decision_labels(app_js: str) -> None:
 
 
 def test_js_has_polling_mechanism(app_js: str) -> None:
-    assert "setInterval" in app_js or "polling" in app_js.lower()
+    assert "polling" in app_js.lower() or "pollTimeout" in app_js or "pollJob" in app_js
 
 
 def test_js_has_timer_cleanup(app_js: str) -> None:
-    assert "clearInterval" in app_js or "cancelPolling" in app_js
+    assert "clearTimeout" in app_js or "cancelPolling" in app_js
 
 
 def test_js_handles_page_unload(app_js: str) -> None:
@@ -275,6 +276,125 @@ def test_js_avoids_fabricating_progress(app_js: str) -> None:
 
 def test_js_has_toast_feedback(app_js: str) -> None:
     assert "toast" in app_js.lower()
+
+
+# ---------------------------------------------------------------------------
+# Strengthened regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_js_does_not_use_setinterval(app_js: str) -> None:
+    assert "setInterval" not in app_js, "Polling must use recursive setTimeout, not setInterval"
+
+
+def test_js_csv_zip_does_not_call_artifacturl_with_filename(app_js: str) -> None:
+    """CSV/ZIP downloads must use report.downloads URL directly, not pass basenames to artifactUrl."""
+    csv_func = _extract_function(app_js, "handleDownloadCsv")
+    zip_func = _extract_function(app_js, "handleDownloadZip")
+    assert "artifactUrl" not in csv_func, "CSV download must not call artifactUrl"
+    assert "artifactUrl" not in zip_func, "ZIP download must not call artifactUrl"
+    assert "downloads.csv" in csv_func or "downloads.csv" in zip_func or "downloads" in app_js
+
+
+def test_js_fetch_job_does_not_write_global_state(app_js: str) -> None:
+    fetch_func = _extract_function(app_js, "function fetchJob")
+    assert "state.selectedJob" not in fetch_func, (
+        "fetchJob must return data, not write to state.selectedJob"
+    )
+
+
+def test_js_fetch_report_does_not_write_global_state(app_js: str) -> None:
+    fetch_func = _extract_function(app_js, "function fetchReport")
+    assert "state.report" not in fetch_func, (
+        "fetchReport must return data, not write to state.report"
+    )
+
+
+def test_js_numeric_settings_avoid_short_circuit_or(app_js: str) -> None:
+    """Numeric settings must use parseNumeric(), not parseFloat(val) || default."""
+    build_func = _extract_function(app_js, "function buildSettings")
+    assert "parseFloat" not in build_func, (
+        "Settings must use parseNumeric helper, not parseFloat(...) || default"
+    )
+
+
+def test_js_update_upload_button_checks_model_ready(app_js: str) -> None:
+    update_func = _extract_function(app_js, "function updateUploadButton")
+    assert "model_ready" in update_func, (
+        "updateUploadButton must check model_ready"
+    )
+
+
+def test_html_upload_panel_is_inside_left_rail(rendered_html: str) -> None:
+    """Upload panel must be inside the task-rail (left column)."""
+    assert 'id="upload-panel"' in rendered_html
+    rail_start = rendered_html.index('class="task-rail"')
+    rail_close = rendered_html.index("</aside>", rail_start)
+    rail_content = rendered_html[rail_start:rail_close]
+    assert 'id="upload-panel"' in rail_content, (
+        "upload-panel must be inside the left task-rail"
+    )
+
+
+def test_js_delete_button_has_aria_label(app_js: str) -> None:
+    """Delete button aria-label is set in JS renderJobs, not static HTML."""
+    assert 'aria-label="删除任务' in app_js, (
+        "Delete buttons in JS must have aria-label"
+    )
+
+
+def test_html_model_notice_present(rendered_html: str) -> None:
+    assert 'id="model-notice"' in rendered_html, (
+        "Model-notice element must exist for model_ready=false warning"
+    )
+
+
+def test_css_status_badge_has_running_class(styles_css: str) -> None:
+    assert "status-running" in styles_css, (
+        "Status badge must use .status-running CSS class, not inline styles"
+    )
+
+
+def test_css_status_badge_has_created_class(styles_css: str) -> None:
+    assert "status-created" in styles_css, (
+        "Status badge must use .status-created CSS class, not inline styles"
+    )
+
+
+def test_css_preview_video_class(styles_css: str) -> None:
+    assert ".preview-video" in styles_css, (
+        "Video preview must use .preview-video class, not inline styles"
+    )
+
+
+def test_html_stats_inside_topbar(rendered_html: str) -> None:
+    """Stats bar must be inside the topbar area, not a standalone wide stripe."""
+    assert 'id="stats-bar"' in rendered_html
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_function(js: str, func_name: str) -> str:
+    """Extract the body of a named function from JS source."""
+    start = js.find(func_name)
+    if start == -1:
+        return ""
+    brace_start = js.find("{", start)
+    if brace_start == -1:
+        return ""
+    depth = 0
+    i = brace_start
+    for i in range(brace_start, len(js)):
+        if js[i] == "{":
+            depth += 1
+        elif js[i] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+    return js[start:i + 1]
 
 
 # ---------------------------------------------------------------------------
