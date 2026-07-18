@@ -1,0 +1,26 @@
+{
+  "classes": [
+    "player",
+    "enemy",
+    "energy_orb",
+    "treasure_chest",
+    "health_potion"
+  ],
+  "epochs": 30,
+  "imgsz": 640,
+  "batch": 2,
+  "device": "cpu",
+  "seed": 20260718,
+  "init_weights": "models\\yolo11n.pt",
+  "best_weights": "models\\aegis_game_best.pt",
+  "sha256": "fcc842e69565037681c5a7d8f6a75881217eb66c246bdd4d88330d6d0b1dd957",
+  "elapsed_seconds": 902.07,
+  "run_dir": "training_runs\\day08_game_audit",
+  "metrics": {
+    "metrics/precision(B)": 0.99659872598045,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.9949999999999999,
+    "metrics/mAP50-95(B)": 0.9925533333333331,
+    "fitness": 0.9925533333333331
+  }
+}
