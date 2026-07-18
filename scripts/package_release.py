@@ -11,27 +11,25 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1].resolve()
-SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 TESTS_DIR = PROJECT_ROOT / "tests"
 FIXTURE_SUPPORT = TESTS_DIR / "fixtures" / "support.py"
 
 RELEASE_STAGING = PROJECT_ROOT / "tmp" / "release"
+VALIDATION_OUTPUTS = "validation_outputs"
 
-# ---- helpers ----
 _HAS_FIXTURE_SUPPORT = FIXTURE_SUPPORT.is_file()
-
-# Zacian: earliest valid ZIP epoch is 1980-01-01
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+_SCRIPTS_EXECUTABLE = sys.executable
 
 
 def _load_hygiene() -> dict[str, str]:
@@ -39,7 +37,6 @@ def _load_hygiene() -> dict[str, str]:
         return {}
     sys.path.insert(0, str(PROJECT_ROOT))
     from tests.fixtures.support import hygiene_scan
-
     return hygiene_scan(PROJECT_ROOT)
 
 
@@ -47,7 +44,6 @@ def _validate_zip(b: bytes) -> None:
     if _HAS_FIXTURE_SUPPORT:
         sys.path.insert(0, str(PROJECT_ROOT))
         from tests.fixtures.support import validate_zip
-
         validate_zip(b, "self-check")
         return
     with zipfile.ZipFile(io.BytesIO(b)) as zf:
@@ -55,12 +51,8 @@ def _validate_zip(b: bytes) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. Extract surname from roster
-# ---------------------------------------------------------------------------
 ROSTER = PROJECT_ROOT / "docs" / "TEAM_ROSTER.md"
-ROSTER_RE = re.compile(
-    r"\|\s*组长/产品与集成\s*\|.*?\|\s*(\S+)\s*\|"
-)
+ROSTER_RE = re.compile(r"\|\s*组长/产品与集成\s*\|.*?\|\s*(\S+)\s*\|")
 
 
 def _extract_surname() -> str:
@@ -72,94 +64,198 @@ def _extract_surname() -> str:
         raise SystemExit(f"cannot parse surname from {ROSTER}")
     full_name = m.group(1).strip()
     if not full_name:
-        raise SystemExit("surname is empty — will not generate a fake package name")
-    # Use first character as surname (Chinese naming convention)
-    surname = full_name[0]
-    return surname
+        raise SystemExit("surname is empty")
+    return full_name[0]
 
 
 # ---------------------------------------------------------------------------
-# 2. Gate checks
+# Gate checks
 # ---------------------------------------------------------------------------
 def _git_available() -> bool:
     import shutil as _shutil
     return _shutil.which("git") is not None
 
 
+def _validate_completed_job(job_dir: Path, job_id: str) -> list[str]:
+    """Return a list of issues found; empty means valid."""
+    issues: list[str] = []
+
+    jf = job_dir / "job.json"
+    if not jf.is_file():
+        return [f"missing job.json in {job_dir.name}"]
+    try:
+        body = json.loads(jf.read_text(encoding="utf-8"))
+    except Exception:
+        return [f"unparseable job.json in {job_dir.name}"]
+    if body.get("status") != "completed":
+        issues.append(f"{job_dir.name}: status not completed")
+    if body.get("job_id") != job_id:
+        issues.append(f"{job_dir.name}: job_id mismatch")
+    asset_type = body.get("asset_type", "")
+    if asset_type not in ("image", "video"):
+        issues.append(f"{job_dir.name}: unknown asset_type")
+    asset_file = body.get("asset_file", "")
+    original = job_dir / "input" / asset_file
+    if not original.is_file() or original.stat().st_size == 0:
+        issues.append(f"{job_dir.name}: missing or empty input/{asset_file}")
+
+    # evidence
+    evidence = job_dir / "evidence"
+    if not evidence.is_dir():
+        issues.append(f"{job_dir.name}: missing evidence dir")
+    else:
+        jpegs = [f for f in evidence.iterdir() if f.suffix.lower() in (".jpg", ".jpeg") and f.stat().st_size > 0]
+        if not jpegs:
+            issues.append(f"{job_dir.name}: no non-empty jpeg evidence frames")
+
+    result = job_dir / "result"
+    # analysis_report.json
+    rpt_file = result / "analysis_report.json"
+    if not rpt_file.is_file():
+        issues.append(f"{job_dir.name}: missing analysis_report.json")
+    else:
+        try:
+            rpt = json.loads(rpt_file.read_text(encoding="utf-8"))
+        except Exception:
+            issues.append(f"{job_dir.name}: unparseable analysis_report.json")
+        else:
+            if rpt.get("job_id") != job_id:
+                issues.append(f"{job_dir.name}: report job_id mismatch")
+            ad = rpt.get("auto_decision")
+            if ad not in ("pass", "review", "reject"):
+                issues.append(f"{job_dir.name}: invalid auto_decision {ad}")
+            fd = rpt.get("final_decision")
+            if fd and fd not in ("pass", "review", "reject"):
+                issues.append(f"{job_dir.name}: invalid final_decision {fd}")
+            for name in rpt.get("evidence_frames", []):
+                if not (evidence / name).is_file():
+                    issues.append(f"{job_dir.name}: evidence frame {name} missing on disk")
+
+    # detections.csv
+    csv_file = result / "detections.csv"
+    if not csv_file.is_file():
+        issues.append(f"{job_dir.name}: missing detections.csv")
+    else:
+        try:
+            import csv as _csv
+            with csv_file.open(encoding="utf-8") as fh:
+                reader = _csv.DictReader(fh)
+                _ = list(reader)
+        except Exception:
+            issues.append(f"{job_dir.name}: unreadable detections.csv")
+
+    # audit_package.zip
+    zip_file = result / "audit_package.zip"
+    if not zip_file.is_file():
+        issues.append(f"{job_dir.name}: missing audit_package.zip")
+    else:
+        try:
+            with zipfile.ZipFile(str(zip_file)) as zf:
+                if zf.testzip() is not None:
+                    issues.append(f"{job_dir.name}: audit_package.zip CRC error")
+        except Exception:
+            issues.append(f"{job_dir.name}: unopenable audit_package.zip")
+
+    return issues
+
+
 def _all_gates_pass() -> dict[str, bool | str]:
     gates: dict[str, bool | str] = {}
 
-    # a) git clean working tree
     if _git_available():
         result = subprocess.run(
             ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            cwd=str(PROJECT_ROOT),
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
         gates["git_clean"] = result.stdout.strip() == ""
     else:
         gates["git_clean"] = "git not installed"
 
-    # b) pytest -q all green
-    result = subprocess.run(
-        ["pytest", "-q"], capture_output=True, text=True, cwd=str(PROJECT_ROOT)
-    )
-    gates["pytest_pass"] = result.returncode == 0
+    # pytest_pass: use active interpreter
+    pytest_diag = ""
+    try:
+        result = subprocess.run(
+            [_SCRIPTS_EXECUTABLE, "-m", "pytest", "-q"],
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+            timeout=300,
+        )
+        if result.returncode != 0:
+            pytest_diag = (result.stdout + result.stderr)[-500:]
+    except subprocess.TimeoutExpired:
+        pytest_diag = "timeout"
+    except FileNotFoundError:
+        pytest_diag = "pytest not found"
+    except Exception as exc:
+        pytest_diag = str(exc)[:200]
+    gates["pytest_pass"] = pytest_diag == ""
 
-    # c) model present
-    model = PROJECT_ROOT / "models" / "aegis_game_best.pt"
-    gates["model_present"] = model.is_file()
+    gates["model_present"] = (PROJECT_ROOT / "models" / "aegis_game_best.pt").is_file()
 
-    # d) at least 1 completed image + 1 completed video job with valid outputs
+    # Completed image + video jobs with strict validation
     outputs = PROJECT_ROOT / "outputs"
     img_ok = vid_ok = False
     if outputs.is_dir():
-        for job_dir in outputs.iterdir():
+        for job_dir in sorted(outputs.iterdir()):
+            if not job_dir.is_dir():
+                continue
             jf = job_dir / "job.json"
             if not jf.is_file():
                 continue
             try:
-                body = __import__("json").loads(jf.read_text(encoding="utf-8"))
+                body = json.loads(jf.read_text(encoding="utf-8"))
             except Exception:
                 continue
             if body.get("status") != "completed":
                 continue
-            if not (job_dir / "input").is_dir():
+            # Strict validation
+            issues = _validate_completed_job(job_dir, job_dir.name)
+            if issues:
                 continue
             at = body.get("asset_type", "")
-            if at == "image":
+            if at == "image" and not img_ok:
                 img_ok = True
-            elif at == "video":
+            elif at == "video" and not vid_ok:
                 vid_ok = True
     gates["completed_image_job"] = img_ok
     gates["completed_video_job"] = vid_ok
 
-    # e) bug record has ≥2 closed bugs with commit hashes
+    # Bug gate: strict parsing
     bug_doc = PROJECT_ROOT / "docs" / "BUG_RECORD.md"
     bug_count = 0
     if bug_doc.is_file():
         text = bug_doc.read_text(encoding="utf-8")
-        # count "修复提交:" followed by a hex hash
-        fixes = re.findall(r"修复提交[：:]\s*([a-f0-9]{7,40})", text)
-        # each Bug section should have its own fix entry
-        sections = re.findall(r"## Bug \d+", text)
-        bug_count = min(len(fixes), len(sections))
+        # Find Bug sections
+        for m in re.finditer(r"## BUG-(\d+)", text):
+            section = text[m.end():]
+            next_section = re.search(r"\n## ", section)
+            if next_section:
+                section = section[:next_section.start()]
+            # Requires: fix commit + regression result
+            has_fix = bool(re.search(r"修复提交[：:]\s*([a-f0-9]{7,40})", section))
+            has_regression = bool(re.search(r"回归结果[：:]\s*通过", section))
+            if has_fix and has_regression:
+                bug_count += 1
     gates["closed_bugs_ge_2"] = bug_count >= 2
 
-    # f) screenshots exist
+    # Screenshots: exact 15 named files from SCREENSHOT_INDEX
+    required_ss = [
+        "workbench_full.png", "upload_success.png", "analysis_in_progress.png",
+        "result_pass.png", "result_review.png", "result_reject.png",
+        "evidence_frame.png", "manual_review.png", "history.png",
+        "stats.png", "download_json.png", "download_csv.png",
+        "download_zip.png", "error_unsupported.png", "docker_health.png",
+    ]
     ss_dir = PROJECT_ROOT / "screenshots"
-    has_ss = False
+    missing_ss: list[str] = []
     if ss_dir.is_dir():
-        imgs = [
-            f
-            for f in ss_dir.iterdir()
-            if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif")
-        ]
-        has_ss = len(imgs) >= 3
-    gates["screenshots_ok"] = has_ss
+        for name in required_ss:
+            path = ss_dir / name
+            if not path.is_file() or path.stat().st_size == 0:
+                missing_ss.append(name)
+    else:
+        missing_ss = list(required_ss)
+    gates["screenshots_ok"] = len(missing_ss) == 0
 
-    # g) hygiene clean
     hygiene = _load_hygiene()
     gates["hygiene_clean"] = len(hygiene) == 0
 
@@ -176,32 +272,20 @@ def _translate(gates: dict[str, bool | str]) -> tuple[bool, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# 3. File manifest
+# File manifest
 # ---------------------------------------------------------------------------
 MANIFEST_PATTERNS = [
-    "app.py",
-    "requirements.txt",
-    "environment.yml",
-    "Dockerfile",
-    "compose.yaml",
-    ".dockerignore",
-    ".editorconfig",
-    "pytest.ini",
-    "README.md",
-    "AGENTS.md",
+    "app.py", "requirements.txt", "environment.yml",
+    "Dockerfile", "compose.yaml", ".dockerignore", ".editorconfig", "pytest.ini",
+    "README.md", "AGENTS.md",
     "aegis_review/**/*.py",
-    "aegis_review/cv/**/*.py",
-    "static/**",
-    "templates/**",
+    "static/**", "templates/**",
     "prompts/**/*.md",
     "scripts/*.py",
     "tests/**/*.py",
     "models/aegis_game_best.pt",
     "docs/**/*.md",
-    "docs/assignments/*.md",
-    "screenshots/*.png",
-    "screenshots/*.jpg",
-    "screenshots/*.jpeg",
+    "screenshots/*.png", "screenshots/*.jpg", "screenshots/*.jpeg",
     "dataset/**",
     "training_evidence/**",
 ]
@@ -210,18 +294,7 @@ EXCLUDE_PREFIXES = (
     ".git/", "__pycache__/", "node_modules/", "tmp/", "outputs/", ".pytest_cache/",
     "training_runs/", "runs/",
 )
-
 EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".tmp", ".log")
-
-# Extra patterns to match for exclusion (glob-style)
-EXCLUDE_PATTERNS = [
-    "**/last.pt",
-    "**/*.last",
-    "**/__pycache__/**",
-    "**/.pytest_cache/**",
-    "models/*.pt",
-    "!models/aegis_game_best.pt",
-]
 
 
 def _collect_files() -> list[Path]:
@@ -246,11 +319,66 @@ def _collect_files() -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# 4. Build archive
+# validation_outputs selection
+# ---------------------------------------------------------------------------
+def _select_validation_jobs() -> tuple[str | None, str | None]:
+    """Return (image_job_id, video_job_id) – the first valid completed job of each type."""
+    outputs = PROJECT_ROOT / "outputs"
+    img_jid = vid_jid = None
+    if not outputs.is_dir():
+        return None, None
+    for job_dir in sorted(outputs.iterdir()):
+        if not job_dir.is_dir():
+            continue
+        jf = job_dir / "job.json"
+        if not jf.is_file():
+            continue
+        try:
+            body = json.loads(jf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if body.get("status") != "completed":
+            continue
+        issues = _validate_completed_job(job_dir, job_dir.name)
+        if issues:
+            continue
+        at = body.get("asset_type", "")
+        if at == "image" and img_jid is None:
+            img_jid = job_dir.name
+        elif at == "video" and vid_jid is None:
+            vid_jid = job_dir.name
+        if img_jid and vid_jid:
+            break
+    return img_jid, vid_jid
+
+
+def _copy_validation_outputs(staging_root: Path) -> None:
+    img_jid, vid_jid = _select_validation_jobs()
+    dest = staging_root / VALIDATION_OUTPUTS
+    dest.mkdir(parents=True, exist_ok=True)
+
+    outputs = PROJECT_ROOT / "outputs"
+    for jid in (img_jid, vid_jid):
+        if jid is None:
+            continue
+        src = outputs / jid
+        dst = dest / jid
+        if dst.exists():
+            shutil.rmtree(dst)
+        # Walk and copy, rejecting symlinks
+        for item in src.rglob("*"):
+            if item.is_symlink():
+                raise SystemExit(f"refusing to package symlink in outputs: {item}")
+            if item.is_dir():
+                (dst / item.relative_to(src)).mkdir(parents=True, exist_ok=True)
+            else:
+                shutil.copy2(item, dst / item.relative_to(src))
+
+
+# ---------------------------------------------------------------------------
+# Build archive
 # ---------------------------------------------------------------------------
 def _build_archive(package_dir: Path) -> tuple[Path, str]:
-    if not RELEASE_STAGING.parent.exists():
-        RELEASE_STAGING.parent.mkdir(exist_ok=True)
     if RELEASE_STAGING.exists():
         shutil.rmtree(RELEASE_STAGING)
     RELEASE_STAGING.mkdir(parents=True)
@@ -259,6 +387,8 @@ def _build_archive(package_dir: Path) -> tuple[Path, str]:
         dst = RELEASE_STAGING / src.relative_to(PROJECT_ROOT)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
+    _copy_validation_outputs(RELEASE_STAGING)
 
     archive_path = package_dir / f"{_extract_surname()}_A_day08.zip"
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -272,35 +402,23 @@ def _build_archive(package_dir: Path) -> tuple[Path, str]:
             info.date_time = _ZIP_EPOCH
             info.compress_type = zipfile.ZIP_DEFLATED
             with open(f, "rb") as fh:
-                contents = fh.read()
-            zf.writestr(info, contents)
+                zf.writestr(info, fh.read())
 
     sha = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     return archive_path, sha
 
 
 # ---------------------------------------------------------------------------
-# main
-# ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(description="release package builder")
-    parser.add_argument(
-        "--check", action="store_true", help="validate gates only, no archive produced"
-    )
-    parser.add_argument(
-        "--list", action="store_true", help="print file manifest and exit"
-    )
-    parser.add_argument(
-        "--dest",
-        default=str(PROJECT_ROOT),
-        help="directory to write the archive into (default: project root)",
-    )
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--list", action="store_true")
+    parser.add_argument("--dest", default=str(PROJECT_ROOT))
     args = parser.parse_args()
 
     surname = _extract_surname()
     if not surname or not surname.strip():
-        raise SystemExit("surname is empty — will not generate a fake package name")
-
+        raise SystemExit("surname is empty")
     package_name = f"{surname}_A_day08"
 
     if args.list:
@@ -317,7 +435,6 @@ def main() -> None:
             print(line)
         if not passed:
             print(f"\nBLOCKED: {package_name} cannot be generated.")
-            print("Unblock when all gates above show [PASS].")
         else:
             print(f"\nAll gates pass — ready for {package_name}.zip")
         sys.exit(0 if passed else 1)
@@ -328,15 +445,13 @@ def main() -> None:
     for line in lines:
         print(line)
     if not passed:
-        print(f"\nBLOCKED: {package_name}.zip refused — gates did not pass.")
+        print(f"\nBLOCKED: {package_name}.zip refused.")
         sys.exit(1)
 
     print(f"\n[package_release] building {package_name}.zip ...")
     archive, sha = _build_archive(Path(args.dest))
     print(f"  {archive}")
     print(f"  SHA256: {sha}")
-
-    # self-check
     _validate_zip(archive.read_bytes())
     print("  ZIP CRC: OK")
     print(f"\nDone: {package_name}.zip")
